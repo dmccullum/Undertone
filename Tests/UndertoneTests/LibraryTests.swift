@@ -1,0 +1,49 @@
+import XCTest
+@testable import Undertone
+
+final class LibraryTests: XCTestCase {
+    @MainActor func testCustomLibrariesSurviveReloadAndDoNotOverwritePalettes() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.savePalette(name: "Existing palette")
+        let libraryID = try XCTUnwrap(model.createColorLibrary(name: "Campaign Colors"))
+        model.saveColor(name: "Custom Blue", hex: "#012169", libraryID: libraryID)
+        model.saveColor(name: "Invalid", hex: "bad hex")
+        let reloaded = StudioModel(directory: folder)
+        let library = try XCTUnwrap(reloaded.colorLibraries.first { $0.name == "Campaign Colors" })
+        XCTAssertEqual(library.colors.map(\.hex), ["012169"])
+        XCTAssertEqual(library.colors.first?.name, "Custom Blue")
+        XCTAssertTrue(reloaded.palettes.contains { $0.name == "Existing palette" })
+        XCTAssertEqual(LibraryColor.coldwellBanker.count, 12)
+        XCTAssertTrue(reloaded.colorLibraries.first?.isBuiltIn == true)
+    }
+
+    @MainActor func testLibraryClickAddsAndRemovesColorImmediately() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        let blue = LibraryColor.coldwellBanker[0]
+        XCTAssertFalse(model.containsColor(hex: blue.hex))
+        model.toggleLibraryColor(blue)
+        XCTAssertTrue(model.containsColor(hex: blue.hex))
+        XCTAssertEqual(model.recipe.stops.last?.hex, blue.hex)
+        model.toggleLibraryColor(blue)
+        XCTAssertFalse(model.containsColor(hex: blue.hex))
+    }
+
+    @MainActor func testColorLibraryExportAndImportCreatesAnIndependentCopy() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        let id = try XCTUnwrap(model.createColorLibrary(name: "Coastal"))
+        model.saveColor(name: "Ocean", hex: "2068FF", libraryID: id)
+        let data = try model.encodedColorLibrary(id: id)
+        let importedID = try model.importColorLibrary(data: data)
+        XCTAssertNotEqual(id, importedID)
+        let imported = try XCTUnwrap(model.colorLibraries.first { $0.id == importedID })
+        XCTAssertEqual(imported.name, "Coastal")
+        XCTAssertEqual(imported.colors.map(\.hex), ["2068FF"])
+        XCTAssertFalse(imported.isBuiltIn)
+    }
+}

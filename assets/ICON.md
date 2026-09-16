@@ -1,0 +1,5 @@
+# Undertone icon
+
+Generated using the built-in image generation tool, then resized into standard macOS ICNS representations with Apple's `sips` and `iconutil`. Source: `Undertone-icon.png`.
+
+Prompt: Use case: logo-brand. Asset type: finished macOS app icon for Undertone, a playful polished native gradient studio. Create one square 1024x1024 icon asset. A large beautifully proportioned macOS rounded-square tile centered with modest transparent margin, genuine transparent background outside tile. Within the tile a luminous flowing folded ribbon making an abstract lowercase u / fluid wave, with richly blended electric cobalt, violet, hot pink, coral and warm apricot gradients. Simple bold silhouette legible in a small Dock icon, tasteful dimensional depth and subtle fine film grain, refined Apple creative-tool personality, joyful and vibrant. Tile backdrop deep saturated indigo fading violet; ribbon provides vivid light and movement. Front view, no perspective, no surrounding scene, no text or lettering, no logos, no watermark, no mockup. The icon itself should fill around 88 percent of the canvas width. Export a single production icon, not a contact sheet.
