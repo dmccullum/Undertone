@@ -9,17 +9,18 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 240, ideal: 270, max: 340)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
         } content: {
             workspace
-                .navigationSplitViewColumnWidth(min: 500, ideal: 720)
+                .navigationSplitViewColumnWidth(min: 430, ideal: 630)
         } detail: {
             inspector
-                .navigationSplitViewColumnWidth(min: 270, ideal: 305, max: 360)
+                .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 340)
         }
         .navigationSplitViewStyle(.balanced)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarItem(id: "gradientActions", placement: .primaryAction) {
+                HStack(spacing: 8) {
                 Button("Randomize", systemImage: "shuffle") {
                     model.randomize()
                 }
@@ -37,6 +38,9 @@ struct ContentView: View {
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(model.preview == nil || model.isRendering)
+                }
+                .labelStyle(.iconOnly)
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .onChange(of: model.recipe) { _, _ in
@@ -59,21 +63,12 @@ struct ContentView: View {
     private var sidebar: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("UNDERTONE")
-                        .font(.caption.weight(.semibold))
-                        .tracking(1.6)
-                        .foregroundStyle(.secondary)
-                    Text("Color studies")
-                        .font(.title3.weight(.semibold))
-                    Text("Quiet gradients for the work in progress.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Color library")
+                    .font(.title3.weight(.semibold))
                 .padding(.vertical, 5)
             }
 
-            Section("Color libraries") {
+            Section("Palettes") {
                 ColorLibraryView()
             }
 
@@ -123,11 +118,11 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if model.recipe.mode == .organic {
-                    Toggle("Edit points", isOn: $showsHandles)
+                if model.recipe.mode == .organic || model.recipe.mode == .radial {
+                    Toggle(model.recipe.mode == .radial ? "Edit center" : "Edit points", isOn: $showsHandles)
                         .toggleStyle(.switch)
                         .controlSize(.small)
-                        .accessibilityHint("Show and move color points on the artwork")
+                        .accessibilityHint(model.recipe.mode == .radial ? "Show and move the radial glow center" : "Show and move color points on the artwork")
                 }
             }
             .padding(.horizontal, 24)
@@ -189,8 +184,13 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .coordinateSpace(name: "artworkCanvas")
             .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.black.opacity(0.10), lineWidth: 1)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.black.opacity(0.10), lineWidth: 1)
+                    if showsHandles && model.recipe.mode == .radial {
+                        radialCenterHandle(in: geometry.size)
+                    }
+                }
             }
             .shadow(color: .black.opacity(0.12), radius: 18, y: 7)
         }
@@ -218,6 +218,11 @@ struct ContentView: View {
                     }
                     .controlSize(.small)
                 }
+                Button("Remove All Colors", systemImage: "xmark.circle") {
+                    model.removeAllColors()
+                }
+                .controlSize(.small)
+                .disabled(model.recipe.stops.isEmpty)
             }
 
             Section("Color suggestions") {
@@ -256,7 +261,7 @@ struct ContentView: View {
             Section("Canvas") {
                 Picker("Preset", selection: dimensionPreset) {
                     Text("4K · 3840 × 2160").tag("3840x2160")
-                    Text("Instagram Portrait · 2160 × 2880").tag("2160x2880")
+                    Text("Instagram · 2160 × 2880").tag("2160x2880")
                     Text("Desktop · 2560 × 1440").tag("2560x1440")
                     Text("Square · 2048 × 2048").tag("2048x2048")
                     Text("Portrait · 1440 × 2560").tag("1440x2560")
@@ -302,8 +307,8 @@ struct ContentView: View {
             SliderControl(title: "Softness", value: doubleBinding(\.softness), range: 0...1, valueText: percent(model.recipe.softness))
             SliderControl(title: "Variation", value: doubleBinding(\.colorArc), range: 0...1, valueText: percent(model.recipe.colorArc))
         case .radial:
-            SliderControl(title: "Center X", value: doubleBinding(\.centerX), range: 0...1, valueText: percent(model.recipe.centerX))
-            SliderControl(title: "Center Y", value: doubleBinding(\.centerY), range: 0...1, valueText: percent(model.recipe.centerY))
+            SliderControl(title: "Center X", value: doubleBinding(\.centerX), range: -1...2, valueText: percent(model.recipe.centerX))
+            SliderControl(title: "Center Y", value: doubleBinding(\.centerY), range: -1...2, valueText: percent(model.recipe.centerY))
             SliderControl(title: "Spread", value: doubleBinding(\.fadeWidth), range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
             SliderControl(title: "Ease", value: doubleBinding(\.easing), range: 0...1, valueText: percent(model.recipe.easing))
         case .aurora:
@@ -336,7 +341,6 @@ struct ContentView: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
-                .disabled(model.recipe.stops.count <= 2)
             }
         }
     }
@@ -358,6 +362,36 @@ struct ContentView: View {
             )
             .accessibilityLabel("Move color \(index + 1)")
             .accessibilityHint("Drag to change the color point position")
+    }
+
+    private func radialCenterHandle(in size: CGSize) -> some View {
+        let displayX = min(max(model.recipe.centerX, -0.06), 1.06)
+        let displayY = min(max(model.recipe.centerY, -0.06), 1.06)
+        return ZStack {
+            Circle()
+                .fill(.black.opacity(0.18))
+                .frame(width: 30, height: 30)
+            Circle()
+                .stroke(.white, lineWidth: 2)
+                .frame(width: 20, height: 20)
+            Path { path in
+                path.move(to: CGPoint(x: 4, y: 15)); path.addLine(to: CGPoint(x: 26, y: 15))
+                path.move(to: CGPoint(x: 15, y: 4)); path.addLine(to: CGPoint(x: 15, y: 26))
+            }
+            .stroke(.white, lineWidth: 1.5)
+        }
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+        .position(x: CGFloat(displayX) * size.width, y: CGFloat(displayY) * size.height)
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named("artworkCanvas"))
+                .onChanged { value in
+                    guard size.width > 0, size.height > 0 else { return }
+                    model.recipe.centerX = min(max(Double(value.location.x / size.width), -1), 2)
+                    model.recipe.centerY = min(max(Double(value.location.y / size.height), -1), 2)
+                }
+        )
+        .accessibilityLabel("Move radial glow center")
+        .accessibilityHint("Drag on or beyond the artwork edge, or use Center X and Center Y controls for farther off-canvas placement")
     }
 
     private var dimensionPreset: Binding<String> {

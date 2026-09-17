@@ -80,6 +80,18 @@ final class RendererTests: XCTestCase {
         XCTAssertNotEqual(restrained, expressive)
     }
 
+    func testMagicSingleSeedChangesCompositionWithoutGrain() throws {
+        var recipe = testRecipe(seed: 10)
+        recipe.mode = .magicSingle
+        recipe.stops = [ColorStop(hex: "2068FF", x: 0.5, y: 0.5)]
+        recipe.grain = 0
+        let first = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
+        recipe.seed = 11
+        let second = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
+
+        XCTAssertNotEqual(first, second)
+    }
+
     func testRadialCenterChangesOutput() throws {
         var recipe = testRecipe()
         recipe.mode = .radial
@@ -90,6 +102,19 @@ final class RendererTests: XCTestCase {
         let right = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
 
         XCTAssertNotEqual(left, right)
+    }
+
+    func testRadialCenterCanMoveOffCanvas() throws {
+        var recipe = testRecipe()
+        recipe.mode = .radial
+        recipe.grain = 0
+        recipe.centerX = 0.5
+        let onCanvas = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
+        recipe.centerX = -0.5
+        recipe.centerY = 1.4
+        let offCanvas = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
+
+        XCTAssertNotEqual(onCanvas, offCanvas)
     }
 
     func testRejectsInvalidDimensionsAndExcessiveAllocation() {
@@ -106,13 +131,17 @@ final class RendererTests: XCTestCase {
         }
     }
 
-    func testRequiresAtLeastTwoStops() {
+    func testRendersEmptyAndSingleColorCompositions() throws {
         var recipe = testRecipe()
-        recipe.stops = [recipe.stops[0]]
+        recipe.stops = []
+        recipe.grain = 0
+        let empty = try GradientRenderer.render(recipe, width: 8, height: 8)
+        XCTAssertEqual(empty.width, 8)
+        XCTAssertEqual(empty.height, 8)
 
-        XCTAssertThrowsError(try GradientRenderer.render(recipe, width: 8, height: 8)) { error in
-            XCTAssertEqual(error as? GradientRenderer.RenderError, .insufficientColorStops)
-        }
+        recipe.stops = [ColorStop(hex: "2068FF", x: 0.5, y: 0.5)]
+        let single = try GradientRenderer.render(recipe, width: 8, height: 8)
+        XCTAssertNotEqual(try pixels(in: empty), try pixels(in: single))
     }
 
     // Run explicitly in a release build with

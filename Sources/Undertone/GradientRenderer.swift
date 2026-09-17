@@ -22,11 +22,9 @@ enum GradientRenderer {
         guard !overflow, pixelCount <= maximumPixelCount else {
             throw RenderError.imageTooLarge(width: width, height: height)
         }
-        let minimumStops = recipe.mode == .magicSingle ? 1 : 2
-        guard recipe.stops.count >= minimumStops else { throw RenderError.insufficientColorStops }
-
         let suppliedStops = recipe.stops.map(RenderStop.init)
-        let stops = recipe.mode == .magicSingle
+        let hasColors = !suppliedStops.isEmpty
+        let stops = recipe.mode == .magicSingle && hasColors
             ? magicSingleStops(base: suppliedStops[0], variation: recipe.colorArc, seed: recipe.seed)
             : suppliedStops
         let flow = clamp(recipe.flow, lower: 0, upper: 1)
@@ -38,18 +36,21 @@ enum GradientRenderer {
         let crossX = -axisY, crossY = axisX
         let position = clamp(recipe.gradientPosition, lower: 0, upper: 1)
         let fadeWidth = clamp(recipe.fadeWidth, lower: 0.05, upper: 2)
-        let centerX = clamp(recipe.centerX, lower: 0, upper: 1)
-        let centerY = clamp(recipe.centerY, lower: 0, upper: 1)
+        let centerX = clamp(recipe.centerX, lower: -1, upper: 2)
+        let centerY = clamp(recipe.centerY, lower: -1, upper: 2)
         let softnessCore = 0.0025 + softness * softness * 0.30
         let phase = Double(recipe.seed % 10_000) / 10_000 * .pi * 2
 
-        let palette = makePalette(
-            stops: stops,
-            magic: recipe.mode == .magicLinear || recipe.mode == .aurora,
-            easing: recipe.easing,
-            colorArc: recipe.colorArc,
-            seed: recipe.seed
-        )
+        let emptyColor = RGB(red: 0.13, green: 0.14, blue: 0.17)
+        let palette = hasColors
+            ? makePalette(
+                stops: stops,
+                magic: recipe.mode == .magicLinear || recipe.mode == .aurora,
+                easing: recipe.easing,
+                colorArc: recipe.colorArc,
+                seed: recipe.seed
+            )
+            : [emptyColor]
         let xWarp = (0..<height).map { row -> Double in
             let y = normalizedCoordinate(row, count: height)
             return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2) * 0.32)
@@ -67,7 +68,9 @@ enum GradientRenderer {
             for column in 0..<width {
                 let x = normalizedCoordinate(column, count: width)
                 let color: RGB
-                switch recipe.mode {
+                if !hasColors {
+                    color = emptyColor
+                } else { switch recipe.mode {
                 case .organic, .magicSingle:
                     color = organicColor(stops: stops, x: x + xWarp[row], y: y + yWarp[column], softnessCore: softnessCore)
                 case .linear, .magicLinear:
@@ -81,7 +84,7 @@ enum GradientRenderer {
                     let cross = (x - 0.5) * crossX + (y - 0.5) * crossY
                     let ribbon = sin(cross * .pi * 2.4 + phase) * 0.18 + sin(cross * .pi * 5.2 - phase * 0.7) * 0.055
                     color = paletteColor(palette, at: 0.5 + (axis + ribbon * flow - position) / fadeWidth)
-                }
+                } }
                 let noise = grain == 0 ? 0 : grainNoise(x: column, y: row, cellSize: grainCellSize, seed: recipe.seed) * grain * 0.105
                 let offset = rowOffset + column * 4
                 storage.pointer[offset] = byte(color.red + noise)
@@ -119,6 +122,8 @@ enum GradientRenderer {
 
     private static func makePalette(stops: [RenderStop], magic: Bool, easing: Double, colorArc: Double, seed: UInt64) -> [RGB] {
         let colors = stops.map(\.color)
+        guard let first = colors.first else { return [] }
+        guard colors.count > 1 else { return Array(repeating: first, count: lookupTableSize) }
         let ease = clamp(easing, lower: 0, upper: 1)
         let arc = clamp(colorArc, lower: 0, upper: 1)
         return (0..<lookupTableSize).map { index in
@@ -168,9 +173,16 @@ enum GradientRenderer {
             (-0.09 * strength, 0.34 * strength, 1.16, 0.80, 0.78),
         ]
         return specifications.enumerated().map { index, spec in
-            let color = lab.adjusted(lightness: spec.0, hue: spec.1, chromaScale: spec.2).rgb
-            let wobble = sin(phase + Double(index) * 1.7) * 0.08
-            return RenderStop(color: color, x: clamp(spec.3 + wobble, lower: 0.05, upper: 0.95), y: spec.4)
+            let positionX = seedUnit(seed, salt: UInt64(index * 2 + 1))
+            let positionY = seedUnit(seed, salt: UInt64(index * 2 + 2))
+            let tone = seedUnit(seed, salt: UInt64(index + 11))
+            let hue = spec.1 + (tone - 0.5) * 0.34 * strength
+            let lightness = spec.0 + (positionY - 0.5) * 0.13 * strength
+            let chroma = spec.2 * (0.84 + tone * 0.32)
+            let color = lab.adjusted(lightness: lightness, hue: hue, chromaScale: chroma).rgb
+            let x = spec.3 + (positionX - 0.5) * 0.34 + sin(phase + Double(index) * 1.7) * 0.06
+            let y = spec.4 + (positionY - 0.5) * 0.28 + cos(phase + Double(index) * 1.3) * 0.05
+            return RenderStop(color: color, x: clamp(x, lower: 0.05, upper: 0.95), y: clamp(y, lower: 0.05, upper: 0.95))
         }
     }
 
@@ -197,6 +209,14 @@ enum GradientRenderer {
         value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
         value ^= value >> 31
         return Double(value >> 11) * (1.0 / 9_007_199_254_740_992.0) * 2 - 1
+    }
+
+    private static func seedUnit(_ seed: UInt64, salt: UInt64) -> Double {
+        var value = seed &+ salt &* 0x9E37_79B9_7F4A_7C15
+        value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
+        value ^= value >> 31
+        return Double(value >> 11) * (1.0 / 9_007_199_254_740_992.0)
     }
 
     private struct RGB: Sendable { let red: Double; let green: Double; let blue: Double }

@@ -3,6 +3,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor final class StudioModel: ObservableObject {
+    private static let canvasWidthPreference = "canvasWidth"
+    private static let canvasHeightPreference = "canvasHeight"
     @Published var recipe = GradientRecipe()
     @Published var palettes: [BrandPalette] = []
     @Published var colorLibraries: [ColorLibrary] = [.coldwellBanker]
@@ -21,6 +23,12 @@ import UniformTypeIdentifiers
         libraryURL = directory.appendingPathComponent("palettes.json")
         colorLibrariesURL = directory.appendingPathComponent("color-libraries.json")
         legacyColorsURL = directory.appendingPathComponent("colors.json")
+        let savedWidth = UserDefaults.standard.integer(forKey: Self.canvasWidthPreference)
+        let savedHeight = UserDefaults.standard.integer(forKey: Self.canvasHeightPreference)
+        if (1...8192).contains(savedWidth), (1...8192).contains(savedHeight) {
+            recipe.width = savedWidth
+            recipe.height = savedHeight
+        }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: libraryURL.path) {
@@ -153,15 +161,16 @@ import UniformTypeIdentifiers
 
     func toggleLibraryColor(_ color: LibraryColor) {
         if recipe.mode == .magicSingle {
+            if recipe.stops.first?.hex.caseInsensitiveCompare(color.hex) == .orderedSame {
+                recipe.stops.removeAll()
+                status = "Removed base color"
+                return
+            }
             setBaseColor(hex: color.hex)
             status = "Using \(color.name) as the base color"
             return
         }
         if let match = recipe.stops.first(where: { $0.hex.caseInsensitiveCompare(color.hex) == .orderedSame }) {
-            guard recipe.stops.count > 2 else {
-                status = "A gradient needs at least two colors"
-                return
-            }
             recipe.stops.removeAll { $0.id == match.id }
             status = "Removed \(color.name)"
         } else {
@@ -177,6 +186,8 @@ import UniformTypeIdentifiers
     }
 
     func refreshPreview() {
+        UserDefaults.standard.set(recipe.width, forKey: Self.canvasWidthPreference)
+        UserDefaults.standard.set(recipe.height, forKey: Self.canvasHeightPreference)
         generation += 1
         let token = generation
         previewTask?.cancel()
@@ -198,17 +209,21 @@ import UniformTypeIdentifiers
     func randomize() {
         recipe.seed = UInt64.random(in: 1...UInt64.max)
         switch recipe.mode {
-        case .organic, .magicSingle:
+        case .organic:
             for index in recipe.stops.indices {
                 recipe.stops[index].x = Double.random(in: 0.05...0.95)
                 recipe.stops[index].y = Double.random(in: 0.05...0.95)
             }
+        case .magicSingle:
+            recipe.flow = Double.random(in: 0.25...0.95)
+            recipe.softness = Double.random(in: 0.2...0.9)
+            recipe.colorArc = Double.random(in: 0.2...0.95)
         case .linear, .magicLinear, .aurora:
             recipe.angleDegrees = Double.random(in: 0...360)
             recipe.gradientPosition = Double.random(in: 0.35...0.65)
         case .radial:
-            recipe.centerX = Double.random(in: 0.15...0.85)
-            recipe.centerY = Double.random(in: 0.15...0.85)
+            recipe.centerX = Double.random(in: -0.25...1.25)
+            recipe.centerY = Double.random(in: -0.25...1.25)
         }
     }
     func savePalette(name: String) {
@@ -241,7 +256,11 @@ import UniformTypeIdentifiers
         if recipe.mode == .magicSingle { setBaseColor(hex: hex) }
         else if recipe.stops.count < 8 { recipe.stops.append(.init(hex: hex, x: Double.random(in: 0.1...0.9), y: Double.random(in: 0.1...0.9))) }
     }
-    func removeColor(id: UUID) { if recipe.stops.count > 2 { recipe.stops.removeAll { $0.id == id } } }
+    func removeColor(id: UUID) { recipe.stops.removeAll { $0.id == id } }
+    func removeAllColors() {
+        recipe.stops.removeAll()
+        status = "Removed all colors"
+    }
 
     private func renderExport(completion: @escaping (CGImage, GradientRecipe) throws -> Void) {
         guard !isRendering else { return }
@@ -291,14 +310,14 @@ import UniformTypeIdentifiers
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let candidate = try JSONDecoder().decode(GradientRecipe.self, from: Data(contentsOf: url))
-            let validStopCount = candidate.mode == .magicSingle
-                ? (1...8).contains(candidate.stops.count)
-                : (2...8).contains(candidate.stops.count)
-            let unitValues = [candidate.flow, candidate.softness, candidate.grain, candidate.gradientPosition, candidate.easing, candidate.colorArc, candidate.centerX, candidate.centerY]
+            let validStopCount = (0...8).contains(candidate.stops.count)
+            let unitValues = [candidate.flow, candidate.softness, candidate.grain, candidate.gradientPosition, candidate.easing, candidate.colorArc]
             guard validStopCount,
                   (1...8192).contains(candidate.width), (1...8192).contains(candidate.height),
                   unitValues.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
                   candidate.angleDegrees.isFinite,
+                  candidate.centerX.isFinite, candidate.centerY.isFinite,
+                  (-1...2).contains(candidate.centerX), (-1...2).contains(candidate.centerY),
                   candidate.fadeWidth.isFinite, (0.05...2).contains(candidate.fadeWidth),
                   candidate.grainSize.isFinite, (0.25...10).contains(candidate.grainSize),
                   candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && $0.hex.range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil })

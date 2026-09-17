@@ -32,6 +32,18 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(model.containsColor(hex: blue.hex))
     }
 
+    @MainActor func testColorsCanBeClearedInEveryMode() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+
+        for mode in GradientMode.allCases {
+            model.recipe.mode = mode
+            model.removeAllColors()
+            XCTAssertTrue(model.recipe.stops.isEmpty)
+        }
+    }
+
     @MainActor func testColorLibraryExportAndImportCreatesAnIndependentCopy() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

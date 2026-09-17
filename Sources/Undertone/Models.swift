@@ -46,11 +46,11 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var colorArc: Double = 0.35
     var centerX: Double = 0.5
     var centerY: Double = 0.5
-    var grain: Double = 0.13
+    var grain: Double = 0.20
     var grainSize: Double = 1.0
     var seed: UInt64 = 42
-    var width: Int = 3840
-    var height: Int = 2160
+    var width: Int = 2160
+    var height: Int = 2880
 
     enum CodingKeys: String, CodingKey {
         case stops, mode, flow, softness, angleDegrees, gradientPosition, fadeWidth
@@ -69,11 +69,11 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         colorArc: Double = 0.35,
         centerX: Double = 0.5,
         centerY: Double = 0.5,
-        grain: Double = 0.13,
+        grain: Double = 0.20,
         grainSize: Double = 1,
         seed: UInt64 = 42,
-        width: Int = 3840,
-        height: Int = 2160
+        width: Int = 2160,
+        height: Int = 2880
     ) {
         self.stops = stops
         self.mode = mode

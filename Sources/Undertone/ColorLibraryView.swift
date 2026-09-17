@@ -35,7 +35,7 @@ struct ColorLibraryView: View {
             }
             .labelsHidden()
 
-            Text("Click a color to add it to the gradient.")
+            Text("Click a color to add or remove it from the gradient.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -58,6 +58,9 @@ struct ColorLibraryView: View {
             HStack(spacing: 8) {
                 Button("Add Color…", systemImage: "plus") { showsSaveColor = true }
                     .controlSize(.small)
+                Button("Remove All", systemImage: "xmark.circle") { model.removeAllColors() }
+                    .controlSize(.small)
+                    .disabled(model.recipe.stops.isEmpty)
                 Spacer()
                 Menu {
                     Button("New Library…", systemImage: "folder.badge.plus") {
