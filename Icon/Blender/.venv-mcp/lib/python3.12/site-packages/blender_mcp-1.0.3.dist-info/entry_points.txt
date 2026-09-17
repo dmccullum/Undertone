@@ -1,0 +1,2 @@
+[console_scripts]
+blender-mcp = blmcp:main

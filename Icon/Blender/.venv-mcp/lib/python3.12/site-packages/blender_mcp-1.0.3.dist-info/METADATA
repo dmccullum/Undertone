@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: blender-mcp
+Version: 1.0.3
+Summary: MCP server for Blender
+Requires-Python: >=3.10
+Requires-Dist: docutils
+Requires-Dist: mcp[cli]<2,>=1.2.0
+Requires-Dist: pyyaml

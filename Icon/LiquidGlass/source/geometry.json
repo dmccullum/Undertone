@@ -1,0 +1,31 @@
+{
+  "canvas": [
+    1024,
+    1024
+  ],
+  "physical_width": 184.0,
+  "bend_centerline_radius": 218.0,
+  "twist_degrees": -180,
+  "terminal_corner_radius": 40.0,
+  "projection": {
+    "x_from_z": 0.75,
+    "tilt_radians": 0.3
+  },
+  "twist_span_radians": 3.1,
+  "twist_center_offset_radians": 0.0,
+  "bounds": [
+    202.0,
+    203.84568837106212,
+    822.0,
+    760.436942917778
+  ],
+  "face_overlap_area": 153.0021126412051,
+  "bezier_fit_tolerance": 0.2,
+  "max_cross_section_width_error": 5.684341886080802e-14,
+  "faces_valid": true,
+  "connected_silhouette": true,
+  "cubic_segments": {
+    "01-rear-cyan.svg": 21,
+    "02-front-coral.svg": 25
+  }
+}
