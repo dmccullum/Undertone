@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
     private var observer: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -11,19 +11,20 @@ final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { notification in
             guard let window = notification.object as? NSWindow else { return }
-            window.titlebarAppearsTransparent = true
-            window.titlebarSeparatorStyle = .none
-            window.toolbarStyle = .unified
-            window.backgroundColor = .windowBackgroundColor
+            MainActor.assumeIsolated { UndertoneAppDelegate.style(window) }
         }
-        DispatchQueue.main.async {
-            NSApplication.shared.windows.forEach {
-                $0.titlebarAppearsTransparent = true
-                $0.titlebarSeparatorStyle = .none
-                $0.toolbarStyle = .unified
-                $0.backgroundColor = .windowBackgroundColor
-            }
+        Task { @MainActor in
+            NSApplication.shared.windows.forEach { UndertoneAppDelegate.style($0) }
         }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    private static func style(_ window: NSWindow) {
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
+        window.backgroundColor = .windowBackgroundColor
     }
 }
 
@@ -33,25 +34,59 @@ struct UndertoneApp: App {
     @StateObject private var model = StudioModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("Undertone", id: "studio") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 1_050, minHeight: 700)
+                .frame(minWidth: 980, minHeight: 660)
         }
-        .defaultSize(width: 1_280, height: 820)
-        .windowToolbarStyle(.unified(showsTitle: true))
-        .commands {
-            CommandMenu("Recipe") {
-                Button("Open Recipe…") {
-                    model.openRecipe()
-                }
-                .keyboardShortcut("o", modifiers: [.command])
+        .defaultSize(width: 1_320, height: 860)
+        .windowToolbarStyle(.unified(showsTitle: false))
+        .commands { StudioCommands(model: model) }
+    }
+}
 
-                Button("Save Recipe…") {
-                    model.saveRecipe()
+struct StudioCommands: Commands {
+    @ObservedObject var model: StudioModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Gradient") { model.newGradient() }
+                .keyboardShortcut("n")
+            Button("Duplicate Gradient") { model.duplicateCurrentGradient() }
+                .keyboardShortcut("d")
+            Divider()
+            Button("Import Recipe…") { model.importRecipe() }
+                .keyboardShortcut("o")
+        }
+        CommandGroup(replacing: .saveItem) {
+            Button("Save") { model.saveNow(confirm: true) }
+                .keyboardShortcut("s")
+            Divider()
+            Button("Export Image…") { model.exportImage() }
+                .keyboardShortcut("e")
+                .disabled(model.isRendering)
+            Button("Copy Image") { model.copyImage() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(model.isRendering)
+            Button("Export Recipe…") { model.exportRecipe() }
+                .keyboardShortcut("e", modifiers: [.command, .option])
+        }
+        CommandMenu("Gradient") {
+            Button("Randomize") { model.randomize() }
+                .keyboardShortcut("r")
+            Button("Use Automatic Name") { model.useAutomaticName() }
+            Divider()
+            Menu("Style") {
+                ForEach(Array(GradientMode.allCases.enumerated()), id: \.element) { index, mode in
+                    Button(mode.title) { model.setMode(mode) }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
-                .keyboardShortcut("s", modifiers: [.command])
             }
+            Divider()
+            Button("Delete Gradient") {
+                if let id = model.currentGradientID { model.deleteGradient(id: id) }
+            }
+            .keyboardShortcut(.delete, modifiers: [.command])
         }
     }
 }

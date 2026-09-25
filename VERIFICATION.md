@@ -1,5 +1,20 @@
 # First-build verification
 
+## Redesign: gradient library, naming and interface (unverified build)
+
+Written in a cloud container with no Swift toolchain, so this pass has been syntax-checked only. It has not been compiled, tested or run. Before relying on it, run `swift build` and `swift test` on a Mac, then check the app by hand:
+
+- Gradients tab: new, duplicate, rename, delete and undo delete; relaunch restores the last gradient with every setting and canvas size intact.
+- Automatic names change with the colors and stop changing after a rename; the dice popover offers five ideas.
+- On macOS 26 with Apple Intelligence on, the button shows sparkles and the ideas come from the on-device model. Building with Xcode 16 or earlier skips that code through `canImport(FoundationModels)`.
+- Canvas handles for Organic, Glow, Linear and Aurora; snapping and haptics on a Force Touch trackpad.
+- Color tray: edit popover, drag to reorder, add related tones, remove all.
+- Drag the canvas to Finder and Canva; ⌘C with the canvas focused; Copy Image and Export Image default names.
+- Undo and redo across slider drags, style changes and randomize.
+- Light and dark appearance of the blurred backdrop and inspector.
+- Migration: an existing `palettes.json` becomes gradients and is renamed `palettes-migrated.json`.
+
+
 ## Gradient modes
 
 - Added Organic, Linear, Magic Linear, Magic Single, Radial Glow, and Aurora as native inspector choices.

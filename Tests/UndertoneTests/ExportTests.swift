@@ -15,7 +15,7 @@ final class ExportTests: XCTestCase {
     }
     func testRecipeRoundTripPreservesComposition() throws {
         var recipe = GradientRecipe()
-        recipe.mode = .magicLinear
+        recipe.mode = .linear
         recipe.angleDegrees = 127
         recipe.colorArc = 0.82
         XCTAssertEqual(try JSONDecoder().decode(GradientRecipe.self, from: JSONEncoder().encode(recipe)), recipe)
@@ -32,5 +32,26 @@ final class ExportTests: XCTestCase {
         XCTAssertEqual(decoded.mode, .organic)
         XCTAssertEqual(decoded.fadeWidth, 1)
         XCTAssertEqual(decoded.centerX, 0.5)
+    }
+
+    func testMagicLinearFilesOpenAsLinearAndOldLinearStaysStraight() throws {
+        let encoded = try JSONEncoder().encode(GradientRecipe())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "version")
+
+        object["mode"] = "magicLinear"
+        object["colorArc"] = 0.7
+        let magic = try JSONDecoder().decode(GradientRecipe.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(magic.mode, .linear)
+        XCTAssertEqual(magic.colorArc, 0.7)
+
+        object["mode"] = "linear"
+        let plain = try JSONDecoder().decode(GradientRecipe.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(plain.mode, .linear)
+        XCTAssertEqual(plain.colorArc, 0)
+
+        object["mode"] = "magicSingle"
+        let tonal = try JSONDecoder().decode(GradientRecipe.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(tonal.mode, .tonal)
     }
 }
