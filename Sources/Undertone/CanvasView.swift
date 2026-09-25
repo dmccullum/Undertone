@@ -6,8 +6,8 @@ struct StudioCanvas: View {
         VStack(spacing: 0) {
             CanvasHeader()
                 .padding(.horizontal, 28)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 10)
             GeometryReader { proxy in
                 ArtworkView()
                     .frame(maxWidth: max(0, min(proxy.size.width - 64, 920)), maxHeight: max(0, proxy.size.height - 24))
@@ -18,7 +18,6 @@ struct StudioCanvas: View {
                 .padding(.bottom, 20)
                 .padding(.horizontal, 24)
         }
-        .background { AmbientBackdrop() }
     }
 }
 
@@ -26,8 +25,9 @@ struct StudioCanvas: View {
 
 private struct CanvasHeader: View {
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 4) {
             GradientNameField()
+                .layoutPriority(1)
             NameSuggestionButton()
             Spacer(minLength: 12)
             CanvasSizeMenu()
@@ -35,6 +35,7 @@ private struct CanvasHeader: View {
     }
 }
 
+/// Sized to its text, so the suggestion button sits right after the name.
 private struct GradientNameField: View {
     @EnvironmentObject private var model: StudioModel
     @State private var draft = ""
@@ -42,13 +43,21 @@ private struct GradientNameField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField("Name", text: $draft)
-            .textFieldStyle(.plain)
+        Text(draft.isEmpty ? "Name" : draft)
             .font(.title2.weight(.semibold))
-            .focused($focused)
-            .frame(maxWidth: 440, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .onSubmit { commit(); focused = false }
+            .lineLimit(1)
+            .padding(.trailing, 6)
+            .hidden()
+            .overlay(alignment: .leading) {
+                TextField("Name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.title2.weight(.semibold))
+                    .focused($focused)
+                    .onSubmit {
+                        commit()
+                        focused = false
+                    }
+            }
             .onChange(of: focused) { _, isFocused in
                 if isFocused { editingID = model.currentGradientID } else { commit() }
             }
@@ -59,6 +68,10 @@ private struct GradientNameField: View {
             .onChange(of: model.currentGradientID) { _, _ in
                 if focused { commit() }
                 draft = model.currentName
+            }
+            .onChange(of: model.renameRequest) { _, _ in
+                draft = model.currentName
+                focused = true
             }
             .help("Click to rename")
             .accessibilityLabel("Gradient name")
@@ -80,13 +93,14 @@ private struct NameSuggestionButton: View {
 
     var body: some View {
         Button {
-            model.suggestNames()
+            model.prepareNameSuggestions()
             showsSuggestions = true
         } label: {
             Image(systemName: model.canUseIntelligence ? "sparkles" : "dice")
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
-                .frame(width: 26, height: 26)
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.borderless)
         .help("Suggest a name")
@@ -289,7 +303,7 @@ private struct ArtworkView: View {
                     .interpolation(.high)
                     .scaledToFill()
                     .frame(width: size.width, height: size.height)
-                    .id(model.previewVersion)
+                    .id(model.previewIdentity)
                     .transition(.opacity)
             } else {
                 ProgressView().controlSize(.small)
@@ -298,8 +312,13 @@ private struct ArtworkView: View {
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
         .overlay { shape.strokeBorder(.white.opacity(0.16), lineWidth: 1) }
-        .shadow(color: glow.opacity(0.35), radius: 30, y: 16)
-        .shadow(color: .black.opacity(0.14), radius: 6, y: 3)
+        .background {
+            // Shadows come from a plain shape, so they don't re-render with every preview.
+            shape
+                .fill(glow.opacity(0.5))
+                .shadow(color: glow.opacity(0.45), radius: 30, y: 16)
+                .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+        }
         .contentShape(shape)
         .onDrag { model.dragItemProvider() }
         .focusable()
@@ -520,6 +539,13 @@ private extension View {
 
 private struct ColorTray: View {
     @EnvironmentObject private var model: StudioModel
+    @State private var dragID: UUID?
+    @State private var dragStartIndex = 0
+    @State private var dragTranslation: CGSize = .zero
+
+    /// Chip width plus spacing: how far a drag travels to move one place.
+    private let slot: CGFloat = 40
+    private let removeDistance: CGFloat = 56
 
     private var visibleStops: [ColorStop] {
         model.recipe.mode == .tonal ? Array(model.recipe.stops.prefix(1)) : model.recipe.stops
@@ -534,7 +560,15 @@ private struct ColorTray: View {
                     .padding(.leading, 6)
             }
             ForEach(visibleStops) { stop in
-                StopChip(stop: stop)
+                let isDragging = dragID == stop.id
+                StopChip(stop: stop, isLifted: isDragging, isRemoving: isDragging && abs(dragTranslation.height) > removeDistance)
+                    .offset(isDragging ? dragOffset(for: stop) : .zero)
+                    .zIndex(isDragging ? 1 : 0)
+                    .transaction { transaction in
+                        // The lifted chip tracks the pointer exactly; only its neighbors animate.
+                        if isDragging { transaction.animation = nil }
+                    }
+                    .gesture(reorderGesture(for: stop))
                     .transition(.scale.combined(with: .opacity))
             }
             if model.canAddStop {
@@ -555,47 +589,95 @@ private struct ColorTray: View {
                 .accessibilityLabel("Remove all colors")
             }
         }
+        .coordinateSpace(name: "tray")
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())
-        .overlay { Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1) }
+        .overlay { Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: model.recipe.stops.map(\.id))
+        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
+    }
+
+    private func dragOffset(for stop: ColorStop) -> CGSize {
+        guard let index = model.recipe.stops.firstIndex(where: { $0.id == stop.id }) else { return .zero }
+        return CGSize(width: dragTranslation.width - CGFloat(index - dragStartIndex) * slot, height: dragTranslation.height)
+    }
+
+    /// Dock-style dragging: the chip follows the pointer, neighbors slide aside as it passes,
+    /// and pulling it well above or below the tray removes it.
+    private func reorderGesture(for stop: ColorStop) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named("tray"))
+            .onChanged { value in
+                if dragID != stop.id {
+                    dragID = stop.id
+                    dragStartIndex = model.recipe.stops.firstIndex { $0.id == stop.id } ?? 0
+                }
+                dragTranslation = value.translation
+                guard model.recipe.mode != .tonal, !model.recipe.stops.isEmpty else { return }
+                let steps = Int((value.translation.width / slot).rounded())
+                let target = min(max(dragStartIndex + steps, 0), model.recipe.stops.count - 1)
+                if let current = model.recipe.stops.firstIndex(where: { $0.id == stop.id }), current != target {
+                    model.moveColor(id: stop.id, toIndex: target)
+                }
+            }
+            .onEnded { value in
+                let remove = abs(value.translation.height) > removeDistance
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.75)) {
+                    dragID = nil
+                    dragTranslation = .zero
+                    if remove { model.removeColor(id: stop.id) }
+                }
+            }
     }
 }
 
 private struct StopChip: View {
     @EnvironmentObject private var model: StudioModel
     let stop: ColorStop
+    let isLifted: Bool
+    let isRemoving: Bool
     @State private var editing = false
     @State private var hovering = false
 
     private var name: String { model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex) }
 
     var body: some View {
-        GlossyDot(hex: stop.hex, size: 30)
-            .scaleEffect(hovering ? 1.12 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hovering)
+        ColorDot(hex: stop.hex, size: 30)
+            .shadow(color: .black.opacity(isLifted ? 0.3 : 0), radius: 8, y: 5)
+            .scaleEffect(isRemoving ? 0.8 : (isLifted ? 1.18 : (hovering ? 1.08 : 1)))
+            .opacity(isRemoving ? 0.4 : 1)
+            .overlay(alignment: .top) {
+                if isRemoving {
+                    Text("Remove")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .fixedSize()
+                        .offset(y: -24)
+                }
+            }
+            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: hovering)
+            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isLifted)
+            .animation(.easeOut(duration: 0.15), value: isRemoving)
+            .contentShape(Circle())
             .onHover { hovering = $0 }
             .onTapGesture { editing = true }
             .popover(isPresented: $editing, arrowEdge: .top) {
-                StopEditor(stopID: stop.id)
+                StopEditor(stopID: stop.id, dismiss: { editing = false })
                     .environmentObject(model)
             }
-            .draggable(stop.id.uuidString)
-            .dropDestination(for: String.self) { items, _ in
-                guard let raw = items.first, let id = UUID(uuidString: raw) else { return false }
-                model.moveColor(id: id, to: stop.id)
-                return true
-            }
             .contextMenu {
+                Button("Duplicate") { model.duplicateColor(id: stop.id) }
+                    .disabled(!model.canAddStop || model.recipe.mode == .tonal)
                 Button("Copy Hex") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("#" + stop.hex, forType: .string)
                 }
+                Divider()
                 Button("Remove", role: .destructive) { model.removeColor(id: stop.id) }
             }
-            .help("\(name) · #\(stop.hex). Click to edit, drag to reorder.")
+            .help("\(name) · #\(stop.hex). Click to edit, drag to reorder, drag away to remove.")
             .accessibilityElement()
             .accessibilityLabel("\(name), \(stop.hex)")
             .accessibilityAddTraits(.isButton)
@@ -606,6 +688,7 @@ private struct StopChip: View {
 private struct StopEditor: View {
     @EnvironmentObject private var model: StudioModel
     let stopID: UUID
+    let dismiss: () -> Void
 
     private var stop: ColorStop? { model.recipe.stops.first { $0.id == stopID } }
 
@@ -621,14 +704,27 @@ private struct StopEditor: View {
                 Text(model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button("Remove Color", systemImage: "minus.circle", role: .destructive) {
-                    model.removeColor(id: stopID)
+                HStack {
+                    Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicateColor(id: stopID) }
+                        .disabled(!model.canAddStop || model.recipe.mode == .tonal)
+                    Spacer()
+                    Button("Remove", systemImage: "minus.circle", role: .destructive) {
+                        // Close the popover before its anchor disappears.
+                        dismiss()
+                        let target = self.model
+                        let id = stopID
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            target.removeColor(id: id)
+                        }
+                    }
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
             }
         }
         .padding(14)
+        .frame(width: 230)
     }
 
     private var colorBinding: Binding<Color> {
@@ -678,7 +774,7 @@ private struct AddStopButton: View {
                             model.addColor(hex: hex)
                             showsPicker = model.canAddStop
                         } label: {
-                            GlossyDot(hex: hex, size: 26)
+                            ColorDot(hex: hex, size: 26)
                         }
                         .buttonStyle(.plain)
                         .help("#\(hex)")

@@ -5,8 +5,10 @@ A native Mac studio for expressive gradients and film grain. Built with SwiftUI 
 ## Run
 
 ```sh
-swift run
+swift run -c release
 ```
+
+Use the release configuration. A plain `swift run` builds for debugging, and the per-pixel renderer runs many times slower that way.
 
 To package a local app:
 
@@ -19,15 +21,15 @@ Open `Package.swift` in Xcode to develop with Apple's tooling. `swift test` runs
 
 ## Workflow
 
-The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Hide the inspector with the toolbar button when you want only the artwork.
+The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Randomize, Copy and Export sit at the top of the inspector. Hide the sidebar with ⌃⌘S.
 
-**Gradients.** Every composition lives in the Gradients library and saves itself as you work. A gradient keeps everything: colors, point positions, direction, center, every slider, the seed and the canvas size. New Gradient (⌘N) starts a fresh layout from the current colors, Duplicate (⌘D) makes a variation and Delete can be undone. ⌘S confirms a save but is never required.
+**Gradients.** Every composition lives in the Gradients library and saves itself as you work. A gradient keeps everything: colors, point positions, direction, center, every slider, the seed and the canvas size. Gradients you create in a session update in place. Editing one saved in an earlier session makes a numbered copy (Dusk becomes Dusk 2), so a favorite is never overwritten by accident. To overwrite on purpose, right-click the saved gradient and choose Replace with Current Gradient. The right-click menu also has Rename, Duplicate, Export Recipe and Delete, and Delete can be undone. New Gradient (⌘N) starts a fresh layout from the current colors. ⌘S confirms a save but is never required.
 
-**Colors.** The Colors tab holds collections of named colors. A collection can be a full brand library such as Coldwell Banker or a small palette. Click a swatch to add it to the gradient and click again to remove it. The actions menu creates, imports, exports and deletes collections, and New Collection from Gradient Colors turns the current colors into a reusable palette. Built-in collections stay unchanged; colors added while viewing one go to My Colors.
+**Colors.** The Colors tab holds collapsible collections of named colors. A collection can be a full brand library such as Coldwell Banker or a small palette. Every click on a swatch adds that color to the gradient, so a color can appear more than once; a badge shows how many times. Right-click a swatch to edit, rename or delete it. Each collection's menu adds colors, renames, exports and deletes it. New Collection at the bottom also imports a collection or turns the gradient's colors into one. Built-in collections are locked.
 
-**Names.** New gradients get a name from their colors, and the name follows the colors until you rename it. The dice button offers five more ideas. On a Mac with Apple Intelligence turned on (macOS 26 or later), the button shows sparkles and the ideas come from Apple's on-device model; otherwise a deterministic word picker supplies them. Exports use the name and size, such as `Harbor Hush 2160x2880.png`.
+**Names.** New gradients get a name from their colors, and the name follows the colors until you rename it. The dice button next to the name offers five ideas; More Ideas asks again. On a Mac with Apple Intelligence turned on (macOS 26 or later), the button shows sparkles and the ideas come from Apple's on-device model; otherwise a deterministic word picker supplies them. Exports use the name and size, such as `Harbor Hush 2160x2880.png`.
 
-**Canvas.** Hover over the artwork to reveal its handles: color points for Organic, the center for Glow, and a position dot plus an angle knob for Linear and Aurora. Handles snap to the center and to 45-degree angles with a light trackpad tap. The color tray under the canvas shows the gradient's colors; click one to edit it, drag to reorder and use + for related tones or a custom color. Drag the artwork straight into Finder, Canva or another app to export it, or press ⌘C while it has focus.
+**Canvas.** Hover over the artwork to reveal its handles: color points for Organic, the center for Glow, and a position dot plus an angle knob for Linear and Aurora. Handles snap to the center and to 45-degree angles with a light trackpad tap. The color tray under the canvas shows the gradient's colors. Click one to edit it, drag it along the tray to reorder (the others slide aside, as in the Dock) or pull it away from the tray to remove it. Right-click to duplicate. Use + for related tones or a custom color. Drag the artwork straight into Finder, Canva or another app to export it, or press ⌘C while it has focus.
 
 **Styles.** The inspector shows each style as a live thumbnail of your colors:
 

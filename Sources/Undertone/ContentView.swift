@@ -4,35 +4,21 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: StudioModel
     @Environment(\.undoManager) private var undoManager
-    @AppStorage("showsInspector") private var showsInspector = true
 
     var body: some View {
         NavigationSplitView {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 340)
         } detail: {
-            StudioCanvas()
-                .inspector(isPresented: $showsInspector) {
-                    InspectorView()
-                        .inspectorColumnWidth(min: 260, ideal: 290, max: 360)
-                }
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button("Randomize", systemImage: "shuffle") { model.randomize() }
-                    .help("Randomize the layout (⌘R)")
-                Button("Copy Image", systemImage: "doc.on.doc") { model.copyImage() }
-                    .help("Copy the full-size image (⇧⌘C)")
-                    .disabled(model.isRendering)
-                Button("Export Image…", systemImage: "square.and.arrow.up") { model.exportImage() }
-                    .help("Export a PNG or JPEG (⌘E)")
-                    .disabled(model.isRendering)
-                Button("Inspector", systemImage: "sidebar.right") {
-                    withAnimation { showsInspector.toggle() }
-                }
-                .help(showsInspector ? "Hide the inspector" : "Show the inspector")
+            HStack(spacing: 0) {
+                StudioCanvas()
+                Divider().opacity(0.5)
+                InspectorView()
+                    .frame(width: 292)
             }
+            .background { AmbientBackdrop() }
         }
+        .toolbar(.hidden, for: .windowToolbar)
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
         .alert("Couldn’t complete that action", isPresented: errorIsPresented) {
@@ -50,10 +36,66 @@ struct ContentView: View {
     }
 }
 
+/// Randomize, Copy and Export, at the top of the inspector.
+private struct InspectorActions: View {
+    @EnvironmentObject private var model: StudioModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            InspectorActionButton(title: "Randomize", systemImage: "shuffle", help: "Randomize the layout (⌘R)") { model.randomize() }
+            InspectorActionButton(title: "Copy", systemImage: "doc.on.doc", help: "Copy the full-size image (⇧⌘C)") { model.copyImage() }
+                .disabled(model.isRendering)
+            InspectorActionButton(title: "Export", systemImage: "square.and.arrow.up", help: "Export a PNG or JPEG (⌘E)") { model.exportImage() }
+                .disabled(model.isRendering)
+        }
+    }
+}
+
+private struct InspectorActionButton: View {
+    let title: String
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(height: 18)
+                Text(title)
+                    .font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(Color.primary.opacity(hovering && isEnabled ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.5)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .help(help)
+    }
+}
+
 struct InspectorView: View {
     @EnvironmentObject private var model: StudioModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            InspectorActions()
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
+            form
+        }
+    }
+
+    private var form: some View {
         Form {
             Section("Style") {
                 StylePicker()
@@ -68,7 +110,6 @@ struct InspectorView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .background { AmbientBackdrop() }
     }
 
     @ViewBuilder private var styleControls: some View {
@@ -167,7 +208,8 @@ private struct StyleTile: View {
     }
 }
 
-/// The current artwork, blurred behind the interface so the window takes on its colors.
+/// A tiny render of the artwork, blurred behind the interface so the window takes on its colors.
+/// It updates only when edits settle, so dragging never re-blurs the window.
 struct AmbientBackdrop: View {
     @EnvironmentObject private var model: StudioModel
     @Environment(\.colorScheme) private var colorScheme
@@ -176,15 +218,18 @@ struct AmbientBackdrop: View {
         GeometryReader { proxy in
             ZStack {
                 Color(nsColor: .windowBackgroundColor)
-                if let image = model.preview {
+                if let image = model.ambientImage {
                     Image(nsImage: image)
                         .resizable()
+                        .interpolation(.high)
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
-                        .blur(radius: 80, opaque: true)
+                        .blur(radius: 40, opaque: true)
                         .saturation(1.2)
                         .opacity(colorScheme == .dark ? 0.55 : 0.5)
+                        .id(ObjectIdentifier(image))
+                        .transition(.opacity)
                 }
                 Color(nsColor: .windowBackgroundColor)
                     .opacity(colorScheme == .dark ? 0.3 : 0.4)
@@ -256,23 +301,17 @@ struct HexField: View {
     }
 }
 
-/// A round swatch with a soft highlight, used for gradient colors and suggestions.
-struct GlossyDot: View {
+/// A round swatch for gradient colors and suggestions. Flat color, with the same hairline and
+/// shadow as the style tiles and library swatches.
+struct ColorDot: View {
     let hex: String
     var size: CGFloat = 28
 
     var body: some View {
-        let color = Hex.color(hex)
         Circle()
-            .fill(color)
-            .overlay {
-                Circle()
-                    .fill(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .center))
-                    .padding(size * 0.1)
-            }
-            .overlay { Circle().strokeBorder(.white.opacity(0.9), lineWidth: 2) }
+            .fill(Hex.color(hex))
+            .overlay { Circle().strokeBorder(Color.primary.opacity(0.14), lineWidth: 1) }
             .frame(width: size, height: size)
-            .shadow(color: color.opacity(0.5), radius: 5, y: 2)
-            .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
+            .shadow(color: .black.opacity(0.14), radius: 2, y: 1)
     }
 }

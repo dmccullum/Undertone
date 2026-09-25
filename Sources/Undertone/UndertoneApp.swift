@@ -21,6 +21,8 @@ import SwiftUI
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     private static func style(_ window: NSWindow) {
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unified
@@ -41,7 +43,10 @@ struct UndertoneApp: App {
         }
         .defaultSize(width: 1_320, height: 860)
         .windowToolbarStyle(.unified(showsTitle: false))
-        .commands { StudioCommands(model: model) }
+        .commands {
+            SidebarCommands()
+            StudioCommands(model: model)
+        }
     }
 }
 
@@ -74,6 +79,9 @@ struct StudioCommands: Commands {
         CommandMenu("Gradient") {
             Button("Randomize") { model.randomize() }
                 .keyboardShortcut("r")
+            Button("Rename…") {
+                if let id = model.currentGradientID { model.beginRenaming(id: id) }
+            }
             Button("Use Automatic Name") { model.useAutomaticName() }
             Divider()
             Menu("Style") {
