@@ -2,28 +2,26 @@ import AppKit
 import SwiftUI
 
 final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
-    private var observer: NSObjectProtocol?
+    weak var model: StudioModel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        observer = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard let window = notification.object as? NSWindow else { return }
-            window.titlebarAppearsTransparent = true
-            window.titlebarSeparatorStyle = .none
-            window.toolbarStyle = .unified
-            window.backgroundColor = .windowBackgroundColor
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            NSApplication.shared.windows.forEach(configure)
         }
-        DispatchQueue.main.async {
-            NSApplication.shared.windows.forEach {
-                $0.titlebarAppearsTransparent = true
-                $0.titlebarSeparatorStyle = .none
-                $0.toolbarStyle = .unified
-                $0.backgroundColor = .windowBackgroundColor
-            }
-        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.flushLastRecipe()
+    }
+
+    private func configure(_ window: NSWindow) {
+        // Restrict window resizing without imposing a minimum on the split
+        // view's intermediate layout proposals during sidebar animation.
+        window.contentMinSize = NSSize(width: 1_050, height: 700)
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.backgroundColor = .windowBackgroundColor
     }
 }
 
@@ -36,11 +34,13 @@ struct UndertoneApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 1_050, minHeight: 700)
+                .onAppear { appDelegate.model = model }
         }
         .defaultSize(width: 1_280, height: 820)
         .windowToolbarStyle(.unified(showsTitle: true))
         .commands {
+            AboutCommands()
+
             CommandMenu("Recipe") {
                 Button("Open Recipe…") {
                     model.openRecipe()
@@ -53,5 +53,11 @@ struct UndertoneApp: App {
                 .keyboardShortcut("s", modifiers: [.command])
             }
         }
+
+        Window("About Undertone", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
     }
 }

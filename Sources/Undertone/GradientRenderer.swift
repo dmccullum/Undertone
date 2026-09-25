@@ -2,6 +2,17 @@ import CoreGraphics
 import Dispatch
 import Foundation
 
+final class RenderCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+}
+
 enum GradientRenderer {
     enum RenderError: Error, Equatable {
         case invalidDimensions(width: Int, height: Int)
@@ -13,8 +24,10 @@ enum GradientRenderer {
     private static let maximumDimension = 8_192
     private static let maximumPixelCount = 33_554_432
     private static let lookupTableSize = 2_048
+    static let grainReferenceMaximumDimension = 900
 
-    static func render(_ recipe: GradientRecipe, width: Int, height: Int) throws -> CGImage {
+    static func render(_ recipe: GradientRecipe, width: Int, height: Int, cancellation: RenderCancellation? = nil) throws -> CGImage {
+        if cancellation?.isCancelled == true { throw CancellationError() }
         guard width > 0, height > 0, width <= maximumDimension, height <= maximumDimension else {
             throw RenderError.invalidDimensions(width: width, height: height)
         }
@@ -29,8 +42,15 @@ enum GradientRenderer {
             : suppliedStops
         let flow = clamp(recipe.flow, lower: 0, upper: 1)
         let softness = clamp(recipe.softness, lower: 0, upper: 1)
-        let grain = clamp(recipe.grain, lower: 0, upper: 1)
+        let grain = recipe.isTextureEnabled ? clamp(recipe.grain, lower: 0, upper: 1) : 0
         let grainCellSize = Int(clamp(recipe.grainSize, lower: 1, upper: 128).rounded())
+        // Keep grain at the same apparent size in the preview and in a scaled export.
+        // Otherwise one-pixel export noise disappears when the image is viewed smaller.
+        let grainScale = min(1, Double(grainReferenceMaximumDimension) / Double(max(recipe.width, recipe.height)))
+        let grainWidth = max(1, Int(Double(recipe.width) * grainScale))
+        let grainHeight = max(1, Int(Double(recipe.height) * grainScale))
+        let grainColumns = (0..<width).map { min(grainWidth - 1, Int(Double($0) * Double(grainWidth) / Double(width))) }
+        let grainRows = (0..<height).map { min(grainHeight - 1, Int(Double($0) * Double(grainHeight) / Double(height))) }
         let angle = recipe.angleDegrees * .pi / 180
         let axisX = cos(angle), axisY = sin(angle)
         let crossX = -axisY, crossY = axisX
@@ -40,29 +60,56 @@ enum GradientRenderer {
         let centerY = clamp(recipe.centerY, lower: -1, upper: 2)
         let softnessCore = 0.0025 + softness * softness * 0.30
         let phase = Double(recipe.seed % 10_000) / 10_000 * .pi * 2
+        let usesLegacyLinearGeometry = recipe.linearStartX == 0 && recipe.linearStartY == 0.5 &&
+            recipe.linearEndX == 1 && recipe.linearEndY == 0.5 &&
+            (recipe.angleDegrees != 0 || recipe.gradientPosition != 0.5)
+        let legacyExtent = 0.5 / max(abs(axisX), abs(axisY), 0.0001)
+        let linearStartX = usesLegacyLinearGeometry ? 0.5 - axisX * legacyExtent : clamp(recipe.linearStartX, lower: -1, upper: 2)
+        let linearStartY = usesLegacyLinearGeometry ? 0.5 - axisY * legacyExtent : clamp(recipe.linearStartY, lower: -1, upper: 2)
+        let linearEndX = usesLegacyLinearGeometry ? 0.5 + axisX * legacyExtent : clamp(recipe.linearEndX, lower: -1, upper: 2)
+        let linearEndY = usesLegacyLinearGeometry ? 0.5 + axisY * legacyExtent : clamp(recipe.linearEndY, lower: -1, upper: 2)
+        let linearDeltaX = linearEndX - linearStartX
+        let linearDeltaY = linearEndY - linearStartY
+        let linearLengthSquared = max(0.0001, linearDeltaX * linearDeltaX + linearDeltaY * linearDeltaY)
 
         let emptyColor = RGB(red: 0.13, green: 0.14, blue: 0.17)
         let palette = hasColors
             ? makePalette(
                 stops: stops,
                 magic: recipe.mode == .magicLinear || recipe.mode == .aurora,
+                soft: recipe.mode == .softLinear,
                 easing: recipe.easing,
+                softness: recipe.softness,
                 colorArc: recipe.colorArc,
                 seed: recipe.seed
             )
             : [emptyColor]
+        // Magic Single's seed controls the underlying flow field as well as its
+        // generated tones and stop locations, so a new seed makes a genuinely new
+        // composition rather than a near-identical recolor.
+        let magicSingle = recipe.mode == .magicSingle
+        let warpStrength = flow * (magicSingle ? 0.24 : 0.14)
+        let warpFrequencyA = magicSingle ? 1.25 + seedUnit(recipe.seed, salt: 41) * 2.1 : 1.73
+        let warpFrequencyB = magicSingle ? 3.0 + seedUnit(recipe.seed, salt: 43) * 3.3 : 3.91
+        let warpPhaseA = magicSingle ? seedUnit(recipe.seed, salt: 47) * .pi * 2 : 0.11 * .pi * 2
+        let warpPhaseB = magicSingle ? seedUnit(recipe.seed, salt: 53) * .pi * 2 : 0.63 * .pi * 2
         let xWarp = (0..<height).map { row -> Double in
             let y = normalizedCoordinate(row, count: height)
-            return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2) * 0.32)
+            return warpStrength * (sin(y * warpFrequencyA * .pi * 2 + warpPhaseA) * 0.68 + sin(y * warpFrequencyB * .pi * 2 + warpPhaseB) * 0.32)
         }
         let yWarp = (0..<width).map { column -> Double in
             let x = normalizedCoordinate(column, count: width)
-            return flow * 0.14 * (sin((x * 1.37 + 0.47) * .pi * 2) * 0.72 + sin((x * 3.23 + 0.19) * .pi * 2) * 0.28)
+            let firstFrequency = magicSingle ? warpFrequencyA + 0.28 : 1.37
+            let secondFrequency = magicSingle ? warpFrequencyB + 0.41 : 3.23
+            let firstPhase = magicSingle ? warpPhaseB : 0.47 * .pi * 2
+            let secondPhase = magicSingle ? warpPhaseA : 0.19 * .pi * 2
+            return warpStrength * (sin(x * firstFrequency * .pi * 2 + firstPhase) * 0.72 + sin(x * secondFrequency * .pi * 2 + secondPhase) * 0.28)
         }
 
         let byteCount = pixelCount * 4
         let storage = PixelStorage(byteCount: byteCount)
         DispatchQueue.concurrentPerform(iterations: height) { row in
+            guard cancellation?.isCancelled != true else { return }
             let y = normalizedCoordinate(row, count: height)
             let rowOffset = row * width * 4
             for column in 0..<width {
@@ -73,9 +120,9 @@ enum GradientRenderer {
                 } else { switch recipe.mode {
                 case .organic, .magicSingle:
                     color = organicColor(stops: stops, x: x + xWarp[row], y: y + yWarp[column], softnessCore: softnessCore)
-                case .linear, .magicLinear:
-                    let coordinate = 0.5 + (x - 0.5) * axisX + (y - 0.5) * axisY
-                    color = paletteColor(palette, at: 0.5 + (coordinate - position) / fadeWidth)
+                case .linear, .softLinear, .magicLinear:
+                    let projected = ((x - linearStartX) * linearDeltaX + (y - linearStartY) * linearDeltaY) / linearLengthSquared
+                    color = paletteColor(palette, at: 0.5 + (projected - 0.5) / fadeWidth)
                 case .radial:
                     let dx = x - centerX, dy = y - centerY
                     color = paletteColor(palette, at: sqrt(dx * dx + dy * dy) / fadeWidth)
@@ -85,7 +132,7 @@ enum GradientRenderer {
                     let ribbon = sin(cross * .pi * 2.4 + phase) * 0.18 + sin(cross * .pi * 5.2 - phase * 0.7) * 0.055
                     color = paletteColor(palette, at: 0.5 + (axis + ribbon * flow - position) / fadeWidth)
                 } }
-                let noise = grain == 0 ? 0 : grainNoise(x: column, y: row, cellSize: grainCellSize, seed: recipe.seed) * grain * 0.105
+                let noise = grain == 0 ? 0 : grainNoise(x: grainColumns[column], y: grainRows[row], cellSize: grainCellSize, seed: recipe.seed) * grain * 0.105
                 let offset = rowOffset + column * 4
                 storage.pointer[offset] = byte(color.red + noise)
                 storage.pointer[offset + 1] = byte(color.green + noise)
@@ -94,6 +141,7 @@ enum GradientRenderer {
             }
         }
 
+        if cancellation?.isCancelled == true { throw CancellationError() }
         let data = Data(bytes: storage.pointer, count: byteCount)
         guard let provider = CGDataProvider(data: data as CFData),
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -120,7 +168,7 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    private static func makePalette(stops: [RenderStop], magic: Bool, easing: Double, colorArc: Double, seed: UInt64) -> [RGB] {
+    private static func makePalette(stops: [RenderStop], magic: Bool, soft: Bool, easing: Double, softness: Double, colorArc: Double, seed: UInt64) -> [RGB] {
         let colors = stops.map(\.color)
         guard let first = colors.first else { return [] }
         guard colors.count > 1 else { return Array(repeating: first, count: lookupTableSize) }
@@ -132,10 +180,16 @@ enum GradientRenderer {
             let segment = min(colors.count - 2, Int(scaled))
             let raw = scaled - Double(segment)
             let smooth = raw * raw * (3 - 2 * raw)
-            let amount = interpolate(raw, smooth, by: ease)
+            let smoother = raw * raw * raw * (raw * (raw * 6 - 15) + 10)
+            let amount = soft
+                ? interpolate(raw, smoother, by: clamp(softness, lower: 0, upper: 1))
+                : interpolate(raw, smooth, by: ease)
             if magic {
                 let sign = ((UInt64(segment) &+ seed) & 1) == 0 ? 1.0 : -1.0
                 return magicInterpolate(colors[segment], colors[segment + 1], by: amount, arc: arc * sign)
+            }
+            if soft {
+                return magicInterpolate(colors[segment], colors[segment + 1], by: amount, arc: 0)
             }
             return RGB(
                 red: interpolate(colors[segment].red, colors[segment + 1].red, by: amount),

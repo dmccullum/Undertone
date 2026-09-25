@@ -19,17 +19,17 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(reloaded.colorLibraries.first?.isBuiltIn == true)
     }
 
-    @MainActor func testLibraryClickAddsAndRemovesColorImmediately() {
+    @MainActor func testLibraryClickCanAddTheSameColorMoreThanOnce() {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         let blue = LibraryColor.coldwellBanker[0]
         XCTAssertFalse(model.containsColor(hex: blue.hex))
-        model.toggleLibraryColor(blue)
+        model.addLibraryColor(blue)
         XCTAssertTrue(model.containsColor(hex: blue.hex))
         XCTAssertEqual(model.recipe.stops.last?.hex, blue.hex)
-        model.toggleLibraryColor(blue)
-        XCTAssertFalse(model.containsColor(hex: blue.hex))
+        model.addLibraryColor(blue)
+        XCTAssertEqual(model.recipe.stops.filter { $0.hex == blue.hex }.count, 2)
     }
 
     @MainActor func testColorsCanBeClearedInEveryMode() {
@@ -57,5 +57,20 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(imported.name, "Coastal")
         XCTAssertEqual(imported.colors.map(\.hex), ["2068FF"])
         XCTAssertFalse(imported.isBuiltIn)
+    }
+
+    @MainActor func testRemovingAPaletteColorPersistsIncludingBuiltInPalettes() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        let library = try XCTUnwrap(model.colorLibraries.first)
+        let color = try XCTUnwrap(library.colors.first)
+
+        model.removeLibraryColor(id: color.id, from: library.id)
+
+        let reloaded = StudioModel(directory: folder)
+        let restoredLibrary = try XCTUnwrap(reloaded.colorLibraries.first { $0.id == library.id })
+        XCTAssertFalse(restoredLibrary.colors.contains { $0.id == color.id })
+        XCTAssertTrue(restoredLibrary.isBuiltIn)
     }
 }

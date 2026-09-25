@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ColorLibraryView: View {
@@ -8,6 +9,9 @@ struct ColorLibraryView: View {
     @State private var libraryName = ""
     @State private var colorName = ""
     @State private var colorHex = "012169"
+    @State private var libraryPendingRemoval: ColorLibrary?
+    @State private var colorPendingRemoval: LibraryColor?
+    @State private var colorRemovalLibraryID: UUID?
 
     private var selectedLibraryID: UUID {
         UUID(uuidString: selectedLibraryIDString) ?? ColorLibrary.coldwellBankerID
@@ -34,10 +38,13 @@ struct ColorLibraryView: View {
                 }
             }
             .labelsHidden()
-
-            Text("Click a color to add or remove it from the gradient.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .contextMenu {
+                if !selectedLibrary.isBuiltIn {
+                    Button("Remove Palette", systemImage: "trash", role: .destructive) {
+                        libraryPendingRemoval = selectedLibrary
+                    }
+                }
+            }
 
             if selectedLibrary.colors.isEmpty {
                 ContentUnavailableView(
@@ -56,11 +63,10 @@ struct ColorLibraryView: View {
             }
 
             HStack(spacing: 8) {
-                Button("Add Color…", systemImage: "plus") { showsSaveColor = true }
+                Button("Add color", systemImage: "plus") { showsSaveColor = true }
+                    .labelStyle(.iconOnly)
                     .controlSize(.small)
-                Button("Remove All", systemImage: "xmark.circle") { model.removeAllColors() }
-                    .controlSize(.small)
-                    .disabled(model.recipe.stops.isEmpty)
+                    .help("Add a color to this library")
                 Spacer()
                 Menu {
                     Button("New Library…", systemImage: "folder.badge.plus") {
@@ -76,8 +82,10 @@ struct ColorLibraryView: View {
                         model.exportColorLibrary(id: selectedLibrary.id)
                     }
                 } label: {
-                    Label("Manage…", systemImage: "ellipsis.circle")
+                    Label("Manage libraries", systemImage: "ellipsis.circle")
                 }
+                .labelStyle(.iconOnly)
+                .controlSize(.small)
                 .help("Create, import, or export a color library")
             }
         }
@@ -85,37 +93,73 @@ struct ColorLibraryView: View {
         .onChange(of: model.colorLibraries) { _, _ in repairSelection() }
         .sheet(isPresented: $showsSaveColor) { saveColorSheet }
         .sheet(isPresented: $showsCreateLibrary) { createLibrarySheet }
+        .confirmationDialog(
+            libraryPendingRemoval.map { "Remove \"\($0.name)\"?" } ?? "Remove palette?",
+            isPresented: libraryRemovalIsPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Palette", role: .destructive) {
+                if let library = libraryPendingRemoval {
+                    model.removeColorLibrary(id: library.id)
+                }
+                libraryPendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { libraryPendingRemoval = nil }
+        } message: {
+            Text("This palette and its saved colors will be permanently removed.")
+        }
+        .alert(
+            colorPendingRemoval.map { "Remove \"\($0.name)\"?" } ?? "Remove palette color?",
+            isPresented: colorRemovalIsPresented
+        ) {
+            Button("Remove Color", role: .destructive) {
+                if let color = colorPendingRemoval, let libraryID = colorRemovalLibraryID {
+                    model.removeLibraryColor(id: color.id, from: libraryID)
+                }
+                colorPendingRemoval = nil
+                colorRemovalLibraryID = nil
+            }
+            Button("Cancel", role: .cancel) {
+                colorPendingRemoval = nil
+                colorRemovalLibraryID = nil
+            }
+        } message: {
+            Text("This color will be permanently removed from the palette.")
+        }
     }
 
     private func colorRow(_ color: LibraryColor) -> some View {
-        let picked = model.containsColor(hex: color.hex)
-        return Button {
-            model.toggleLibraryColor(color)
-        } label: {
-            HStack(spacing: 9) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color(nsColor: ColorStop(hex: color.hex, x: 0, y: 0).nsColor))
-                    .frame(width: 34, height: 24)
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.18)))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(color.name).font(.caption).lineLimit(1)
-                    Text("#" + color.hex)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: picked ? "checkmark.circle.fill" : "plus.circle")
-                    .foregroundStyle(picked ? Color.accentColor : .secondary)
+        HStack(spacing: 9) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: ColorStop(hex: color.hex, x: 0, y: 0).nsColor))
+                .frame(width: 34, height: 24)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.18)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(color.name).font(.caption).lineLimit(1)
+                Text("#" + color.hex)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
+            Spacer(minLength: 4)
+            Image(systemName: "plus.circle")
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
-        .disabled(!picked && model.recipe.stops.count == 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
         .accessibilityLabel("\(color.name), \(color.hex)")
-        .accessibilityValue(picked ? "In gradient" : "Not in gradient")
-        .help("\(picked ? "Remove" : "Add") \(color.name) \(picked ? "from" : "to") the gradient")
+        .accessibilityHint("Add this color to the gradient")
+        .accessibilityAddTraits(.isButton)
+        .help("Add \(color.name) to the gradient")
+        .overlay {
+            PaletteItemInteractionOverlay(
+                primaryAction: { model.addLibraryColor(color) },
+                removalAction: {
+                colorPendingRemoval = color
+                colorRemovalLibraryID = selectedLibrary.id
+                }
+            )
+        }
     }
 
     private var saveColorSheet: some View {
@@ -175,5 +219,63 @@ struct ColorLibraryView: View {
         if !model.colorLibraries.contains(where: { $0.id == selectedLibraryID }) {
             selectedLibraryIDString = model.colorLibraries[0].id.uuidString
         }
+    }
+
+    private var libraryRemovalIsPresented: Binding<Bool> {
+        Binding(
+            get: { libraryPendingRemoval != nil },
+            set: { if !$0 { libraryPendingRemoval = nil } }
+        )
+    }
+
+    private var colorRemovalIsPresented: Binding<Bool> {
+        Binding(
+            get: { colorPendingRemoval != nil },
+            set: {
+                if !$0 {
+                    colorPendingRemoval = nil
+                    colorRemovalLibraryID = nil
+                }
+            }
+        )
+    }
+}
+
+private struct PaletteItemInteractionOverlay: NSViewRepresentable {
+    let primaryAction: () -> Void
+    let removalAction: () -> Void
+
+    func makeNSView(context: Context) -> PaletteItemInteractionView {
+        let view = PaletteItemInteractionView()
+        view.primaryAction = primaryAction
+        view.removalAction = removalAction
+        return view
+    }
+
+    func updateNSView(_ view: PaletteItemInteractionView, context: Context) {
+        view.primaryAction = primaryAction
+        view.removalAction = removalAction
+    }
+}
+
+private final class PaletteItemInteractionView: NSView {
+    var primaryAction: (() -> Void)?
+    var removalAction: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        primaryAction?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Remove from Palette", action: #selector(removeItem), keyEquivalent: "")
+        item.target = self
+        item.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
+        menu.addItem(item)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc private func removeItem() {
+        removalAction?()
     }
 }

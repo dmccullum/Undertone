@@ -1,0 +1,220 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.45402,0.16239,0.85310,1.00000",
+      "srgb:0.83488,0.26147,0.48545,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "blur-material" : 0.07,
+      "layers" : [
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "srgb:0.95907,0.57588,1.00000,1.00000",
+              "srgb:1.00000,0.00000,0.60985,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.7686913395904437,
+                "y" : 1
+              },
+              "stop" : {
+                "x" : 0.08081804607508532,
+                "y" : 0.20487882653061223
+              }
+            }
+          },
+          "image-name" : "Undertone-02.svg",
+          "name" : "Undertone-02",
+          "opacity" : 1,
+          "position-specializations" : [
+            {
+              "value" : {
+                "scale" : 1,
+                "translation-in-points" : [
+                  -28.703125,
+                  -18.46875
+                ]
+              }
+            },
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.9,
+                "translation-in-points" : [
+                  -33.3978125000001,
+                  -6.0359375000000455
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.35
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.68
+      }
+    },
+    {
+      "blur-material" : 0.26,
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "extended-gray:1.00000,1.00000"
+          },
+          "image-name" : "Undertone-02.svg",
+          "name" : "Undertone-02",
+          "position-specializations" : [
+            {
+              "value" : {
+                "scale" : 1,
+                "translation-in-points" : [
+                  -28.703125,
+                  -18.46875
+                ]
+              }
+            },
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 1.15,
+                "translation-in-points" : [
+                  -73.98531250000008,
+                  -74.59843750000005
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.9
+      }
+    },
+    {
+      "blur-material" : 0.25,
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "linear-gradient" : [
+              "srgb:0.00000,0.98836,1.00000,1.00000",
+              "srgb:0.00000,0.42248,1.00000,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.0392536137879911,
+                "y" : 0
+              },
+              "stop" : {
+                "x" : 0.8996967918622848,
+                "y" : 0.8865903755868545
+              }
+            }
+          },
+          "image-name" : "undertone-01.svg",
+          "name" : "undertone-01",
+          "opacity" : 1,
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.85,
+                "translation-in-points" : [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "blur-material" : 0.5,
+      "hidden-specializations" : [
+        {
+          "idiom" : "square",
+          "value" : false
+        }
+      ],
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "extended-gray:1.00000,1.00000"
+          },
+          "image-name" : "undertone-01.svg",
+          "name" : "undertone-01",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.97,
+                "translation-in-points" : [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "position-specializations" : [
+        {
+          "idiom" : "square",
+          "value" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 1
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
