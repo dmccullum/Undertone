@@ -17,8 +17,8 @@ struct SidebarView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 12)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
 
             switch tab {
             case .gradients: GradientLibraryView()
@@ -42,18 +42,7 @@ struct GradientLibraryView: View {
             ForEach(model.gradients) { gradient in
                 GradientRow(gradient: gradient, thumbnail: model.thumbnail(for: gradient))
                     .tag(gradient.id)
-                    .contextMenu {
-                        Button("Duplicate") {
-                            model.selectGradient(id: gradient.id)
-                            model.duplicateCurrentGradient()
-                        }
-                        Button("Export Recipe…") {
-                            model.selectGradient(id: gradient.id)
-                            model.exportRecipe()
-                        }
-                        Divider()
-                        Button("Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
-                    }
+                    .contextMenu { menu(for: gradient) }
             }
         }
         .listStyle(.sidebar)
@@ -71,6 +60,20 @@ struct GradientLibraryView: View {
             .background(.bar)
         }
     }
+
+    @ViewBuilder private func menu(for gradient: SavedGradient) -> some View {
+        Button("Rename…") { model.beginRenaming(id: gradient.id) }
+        Button("Duplicate") { model.duplicateGradient(id: gradient.id) }
+        Button("Replace with Current Gradient") { model.replaceGradient(id: gradient.id) }
+            .disabled(gradient.id == model.currentGradientID)
+        Divider()
+        Button("Export Recipe…") {
+            model.selectGradient(id: gradient.id)
+            model.exportRecipe()
+        }
+        Divider()
+        Button("Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
+    }
 }
 
 private struct GradientRow: View {
@@ -78,7 +81,7 @@ private struct GradientRow: View {
     let thumbnail: NSImage?
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
         HStack(spacing: 10) {
             ZStack {
                 shape.fill(.quaternary)
@@ -90,8 +93,8 @@ private struct GradientRow: View {
             }
             .frame(width: 44, height: 44)
             .clipShape(shape)
-            .overlay { shape.strokeBorder(.primary.opacity(0.1), lineWidth: 1) }
-            .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+            .overlay { shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
+            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(gradient.name)
@@ -110,251 +113,407 @@ private struct GradientRow: View {
 
 // MARK: - Colors
 
+/// The sheets the Colors tab can show.
+private enum ColorSheet: Identifiable {
+    case addColor(libraryID: UUID)
+    case editColor(libraryID: UUID, color: LibraryColor)
+    case newCollection
+    case renameCollection(ColorLibrary)
+
+    var id: String {
+        switch self {
+        case .addColor(let libraryID): "add-\(libraryID)"
+        case .editColor(_, let color): "edit-\(color.id)"
+        case .newCollection: "new-collection"
+        case .renameCollection(let library): "rename-\(library.id)"
+        }
+    }
+}
+
 struct ColorLibraryView: View {
     @EnvironmentObject private var model: StudioModel
-    @AppStorage("selectedColorLibraryID") private var selectedLibraryIDString = ColorLibrary.coldwellBankerID.uuidString
-    @State private var showsSaveColor = false
-    @State private var showsCreateLibrary = false
-    @State private var confirmsDelete = false
-    @State private var libraryName = ""
-    @State private var colorName = ""
-    @State private var colorHex = "012169"
+    @AppStorage("collapsedCollections") private var collapsedStorage = ""
+    @State private var sheet: ColorSheet?
+    @State private var deleting: ColorLibrary?
 
-    private let columns = [GridItem(.adaptive(minimum: 64, maximum: 96), spacing: 10)]
-
-    private var selectedLibraryID: UUID {
-        UUID(uuidString: selectedLibraryIDString) ?? ColorLibrary.coldwellBankerID
-    }
-    private var selectedLibrary: ColorLibrary {
-        model.colorLibraries.first { $0.id == selectedLibraryID } ?? model.colorLibraries[0]
-    }
-    private var selection: Binding<UUID> {
-        Binding(get: { selectedLibrary.id }, set: { selectedLibraryIDString = $0.uuidString })
+    private var collapsed: Set<String> {
+        Set(collapsedStorage.split(separator: ",").map(String.init))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Picker("Collection", selection: selection) {
-                    ForEach(model.colorLibraries) { library in
-                        Text(library.name).tag(library.id)
-                    }
-                }
-                .labelsHidden()
-                manageMenu
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
-
             ScrollView {
-                if selectedLibrary.colors.isEmpty {
-                    ContentUnavailableView(
-                        "No Colors Yet",
-                        systemImage: "paintpalette",
-                        description: Text("Add a color, or save the colors in your gradient as a collection.")
-                    )
-                    .padding(.top, 24)
-                } else {
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(selectedLibrary.colors) { color in
-                            swatch(color)
-                        }
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.colorLibraries) { library in
+                        CollectionSection(
+                            library: library,
+                            isExpanded: expansion(for: library),
+                            showSheet: { sheet = $0 },
+                            requestDelete: { deleting = $0 }
+                        )
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
                 }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             }
 
             HStack {
-                Button("Add Color…", systemImage: "plus") {
-                    colorHex = model.recipe.stops.first?.hex ?? "012169"
-                    showsSaveColor = true
+                Menu {
+                    Button("New Collection…", systemImage: "folder.badge.plus") { sheet = .newCollection }
+                    Button("New Collection from Gradient Colors", systemImage: "square.stack") {
+                        model.createColorLibraryFromCurrentColors()
+                    }
+                    .disabled(model.recipe.stops.isEmpty)
+                    Divider()
+                    Button("Import Collection…", systemImage: "square.and.arrow.down") {
+                        _ = model.importColorLibraryFromPanel()
+                    }
+                } label: {
+                    Label("New Collection", systemImage: "plus")
+                } primaryAction: {
+                    sheet = .newCollection
                 }
-                .buttonStyle(.borderless)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("New collection. Hold for more options.")
                 Spacer()
             }
             .padding(10)
             .background(.bar)
         }
-        .onAppear(perform: repairSelection)
-        .onChange(of: model.colorLibraries) { _, _ in repairSelection() }
-        .sheet(isPresented: $showsSaveColor) { saveColorSheet }
-        .sheet(isPresented: $showsCreateLibrary) { createLibrarySheet }
-        .confirmationDialog("Delete \(selectedLibrary.name)?", isPresented: $confirmsDelete) {
-            Button("Delete Collection", role: .destructive) { model.deleteColorLibrary(id: selectedLibrary.id) }
+        .sheet(item: $sheet) { sheet in
+            sheetContent(sheet)
+                .environmentObject(model)
+        }
+        .confirmationDialog(
+            "Delete \(deleting?.name ?? "collection")?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
+        ) {
+            Button("Delete Collection", role: .destructive) {
+                if let library = deleting { model.deleteColorLibrary(id: library.id) }
+                deleting = nil
+            }
         } message: {
             Text("Gradients that use these colors keep them.")
         }
     }
 
-    private func swatch(_ color: LibraryColor) -> some View {
-        let picked = model.containsColor(hex: color.hex)
-        let enabled = picked || model.recipe.mode == .tonal || model.recipe.stops.count < StudioModel.maximumStops
-        return SwatchChip(color: color, isPicked: picked, isEnabled: enabled) {
-            model.toggleLibraryColor(color)
-        }
-        .contextMenu {
-            Button("Copy Hex") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString("#" + color.hex, forType: .string)
+    private func expansion(for library: ColorLibrary) -> Binding<Bool> {
+        let key = library.id.uuidString
+        return Binding(
+            get: { !collapsed.contains(key) },
+            set: { expanded in
+                var keys = collapsed
+                if expanded { keys.remove(key) } else { keys.insert(key) }
+                collapsedStorage = keys.sorted().joined(separator: ",")
             }
-            if !selectedLibrary.isBuiltIn {
-                Divider()
-                Button("Remove from \(selectedLibrary.name)", role: .destructive) {
-                    model.deleteLibraryColor(color.id, from: selectedLibrary.id)
-                }
-            }
-        }
+        )
     }
 
-    private var manageMenu: some View {
-        Menu {
-            Button("New Collection…", systemImage: "folder.badge.plus") { showsCreateLibrary = true }
-            Button("New Collection from Gradient Colors", systemImage: "square.stack") {
-                if let id = model.createColorLibraryFromCurrentColors() { selectedLibraryIDString = id.uuidString }
+    @ViewBuilder private func sheetContent(_ sheet: ColorSheet) -> some View {
+        switch sheet {
+        case .addColor(let libraryID):
+            ColorEditorSheet(title: "Add a Color", confirmTitle: "Add Color", name: "", hex: model.recipe.stops.first?.hex ?? "012169") { name, hex in
+                model.saveColor(name: name, hex: hex, libraryID: libraryID) != nil
             }
-            .disabled(model.recipe.stops.isEmpty)
-            Button("Import Collection…", systemImage: "square.and.arrow.down") {
-                if let id = model.importColorLibraryFromPanel() { selectedLibraryIDString = id.uuidString }
+        case .editColor(let libraryID, let color):
+            ColorEditorSheet(title: "Edit Color", confirmTitle: "Save", name: color.name, hex: color.hex) { name, hex in
+                model.updateLibraryColor(color.id, in: libraryID, name: name, hex: hex)
             }
-            Divider()
-            Button("Export \(selectedLibrary.name)…", systemImage: "square.and.arrow.up") {
-                model.exportColorLibrary(id: selectedLibrary.id)
+        case .newCollection:
+            NameSheet(title: "New Collection", message: "A collection holds named colors: a brand library or a small palette.", confirmTitle: "Create", name: "") { name in
+                model.createColorLibrary(name: name) != nil
             }
-            if !selectedLibrary.isBuiltIn {
-                Button("Delete \(selectedLibrary.name)…", systemImage: "trash", role: .destructive) {
-                    confirmsDelete = true
-                }
+        case .renameCollection(let library):
+            NameSheet(title: "Rename Collection", message: nil, confirmTitle: "Rename", name: library.name) { name in
+                model.renameColorLibrary(id: library.id, to: name)
             }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Create, import or export collections")
-        .accessibilityLabel("Collection actions")
-    }
-
-    private var saveColorSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Add a Color").font(.title2.weight(.semibold))
-            Text(selectedLibrary.isBuiltIn
-                 ? "Built-in collections stay unchanged. This color will be saved in My Colors."
-                 : "Save this swatch in \(selectedLibrary.name).")
-                .foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                GlossyDot(hex: Hex.normalized(colorHex) ?? "808080", size: 40)
-                Form {
-                    TextField("Name", text: $colorName)
-                    TextField("Hex", text: $colorHex)
-                }
-            }
-            HStack {
-                Button("Cancel") { showsSaveColor = false }.keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Add Color") {
-                    if let id = model.saveColor(name: colorName, hex: colorHex, libraryID: selectedLibrary.id) {
-                        selectedLibraryIDString = id.uuidString
-                        colorName = ""
-                        showsSaveColor = false
-                    }
-                }
-                .disabled(colorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Hex.normalized(colorHex) == nil)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 400)
-        .onAppear {
-            if colorName.isEmpty, let hex = Hex.normalized(colorHex) { colorName = ColorNamer.name(hex) }
-        }
-    }
-
-    private var createLibrarySheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("New Collection").font(.title2.weight(.semibold))
-            Text("A collection holds named colors: a brand library or a small palette.")
-                .foregroundStyle(.secondary)
-            TextField("Collection name", text: $libraryName)
-            HStack {
-                Button("Cancel") { showsCreateLibrary = false }.keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Create") {
-                    if let id = model.createColorLibrary(name: libraryName) {
-                        selectedLibraryIDString = id.uuidString
-                        libraryName = ""
-                        showsCreateLibrary = false
-                    }
-                }
-                .disabled(libraryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 400)
-    }
-
-    private func repairSelection() {
-        if !model.colorLibraries.contains(where: { $0.id == selectedLibraryID }) {
-            selectedLibraryIDString = model.colorLibraries[0].id.uuidString
         }
     }
 }
 
-/// A glossy library swatch. A picked swatch gets a ring in its own color and a checkmark.
-private struct SwatchChip: View {
+/// One collapsible collection: a header row, then swatches shaped like the style tiles.
+private struct CollectionSection: View {
+    @EnvironmentObject private var model: StudioModel
+    let library: ColorLibrary
+    @Binding var isExpanded: Bool
+    let showSheet: (ColorSheet) -> Void
+    let requestDelete: (ColorLibrary) -> Void
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            if isExpanded {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(library.colors) { color in
+                        swatch(color)
+                    }
+                    if !library.isBuiltIn {
+                        AddSwatchTile { showSheet(.addColor(libraryID: library.id)) }
+                    }
+                }
+                .padding(.bottom, 8)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 12)
+                    Text(library.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if library.isBuiltIn {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .help("Built-in collections can't be changed")
+                    }
+                    if !isExpanded {
+                        HStack(spacing: -3) {
+                            ForEach(library.colors.prefix(6)) { color in
+                                ColorDot(hex: color.hex, size: 12)
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                if !library.isBuiltIn {
+                    Button("Add Color…", systemImage: "plus") { showSheet(.addColor(libraryID: library.id)) }
+                    Button("Rename…", systemImage: "pencil") { showSheet(.renameCollection(library)) }
+                }
+                Button("Export…", systemImage: "square.and.arrow.up") { model.exportColorLibrary(id: library.id) }
+                if !library.isBuiltIn {
+                    Divider()
+                    Button("Delete…", systemImage: "trash", role: .destructive) { requestDelete(library) }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel("\(library.name) actions")
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func swatch(_ color: LibraryColor) -> some View {
+        let count = model.count(of: color.hex)
+        let canAdd = model.recipe.mode == .tonal || model.recipe.stops.count < StudioModel.maximumStops
+        return SwatchTile(color: color, count: count, isEnabled: canAdd) {
+            model.addLibraryColor(color)
+        }
+        .contextMenu {
+            Button("Add to Gradient") { model.addLibraryColor(color) }
+                .disabled(!canAdd)
+            Button("Copy Hex") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("#" + color.hex, forType: .string)
+            }
+            Divider()
+            Button("Edit…") { showSheet(.editColor(libraryID: library.id, color: color)) }
+                .disabled(library.isBuiltIn)
+            Button("Rename…") { showSheet(.editColor(libraryID: library.id, color: color)) }
+                .disabled(library.isBuiltIn)
+            Button("Delete", role: .destructive) { model.deleteLibraryColor(color.id, from: library.id) }
+                .disabled(library.isBuiltIn)
+        }
+    }
+}
+
+/// A library swatch with the same shape, hairline and hover as the style tiles.
+/// Every click adds the color again; the badge counts how many times it's in the gradient.
+private struct SwatchTile: View {
     let color: LibraryColor
-    let isPicked: Bool
+    let count: Int
     let isEnabled: Bool
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        let fill = Hex.color(color.hex)
-        let luminance = Hex.luminance(color.hex)
-        let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
         Button(action: action) {
-            VStack(spacing: 6) {
-                ZStack {
-                    shape.fill(fill)
-                    shape
-                        .fill(LinearGradient(colors: [.white.opacity(0.42), .white.opacity(0)], startPoint: .top, endPoint: .center))
-                        .padding(3)
-                    shape.strokeBorder(.primary.opacity(0.12), lineWidth: 1)
-                    if isPicked {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(luminance > 0.6 ? Color.black.opacity(0.7) : Color.white)
-                            .transition(.scale.combined(with: .opacity))
+            VStack(spacing: 5) {
+                shape
+                    .fill(Hex.color(color.hex))
+                    .frame(height: 44)
+                    .overlay { shape.strokeBorder(Color.primary.opacity(count > 0 ? 0 : 0.1), lineWidth: 1) }
+                    .overlay {
+                        if count > 0 {
+                            shape.strokeBorder(Color.accentColor, lineWidth: 2.5)
+                        }
                     }
-                }
-                .frame(height: 50)
-                .padding(3)
-                .overlay {
-                    if isPicked {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(luminance > 0.85 ? Color.accentColor : fill, lineWidth: 2.5)
+                    .overlay(alignment: .topTrailing) {
+                        if count > 0 {
+                            Text(count > 1 ? "\(count)" : "✓")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(minWidth: 16, minHeight: 16)
+                                .background(Color.accentColor, in: Circle())
+                                .offset(x: 4, y: -4)
+                                .transition(.scale.combined(with: .opacity))
+                        }
                     }
-                }
-                .shadow(color: fill.opacity(hovering ? 0.55 : 0.28), radius: hovering ? 9 : 4, y: hovering ? 5 : 2)
-                .scaleEffect(hovering && isEnabled ? 1.06 : 1)
-
+                    .shadow(color: .black.opacity(hovering ? 0.22 : 0.08), radius: hovering ? 6 : 2, y: 2)
+                    .scaleEffect(hovering && isEnabled ? 1.04 : 1)
                 Text(color.name)
-                    .font(.caption2)
+                    .font(.caption)
                     .lineLimit(1)
-                    .foregroundStyle(isPicked ? .primary : .secondary)
+                    .foregroundStyle(count > 0 ? .primary : .secondary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
+        .opacity(isEnabled ? 1 : 0.5)
         .onHover { hovering = $0 }
-        .animation(.spring(response: 0.28, dampingFraction: 0.6), value: hovering)
-        .animation(.spring(response: 0.32, dampingFraction: 0.55), value: isPicked)
-        .help("\(isPicked ? "Remove" : "Add") \(color.name) · #\(color.hex)")
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: count)
+        .help("Add \(color.name) · #\(color.hex)")
         .accessibilityLabel("\(color.name), \(color.hex)")
-        .accessibilityValue(isPicked ? "In gradient" : "Not in gradient")
+        .accessibilityValue(count == 0 ? "Not in gradient" : "In gradient \(count) times")
+        .accessibilityHint("Adds this color to the gradient")
+    }
+}
+
+private struct AddSwatchTile: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        Button(action: action) {
+            VStack(spacing: 5) {
+                shape
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .foregroundStyle(.secondary)
+                    .frame(height: 44)
+                    .overlay {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .scaleEffect(hovering ? 1.04 : 1)
+                Text("Add")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
+        .help("Add a color to this collection")
+        .accessibilityLabel("Add a color")
+    }
+}
+
+// MARK: - Sheets
+
+private struct ColorEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let confirmTitle: String
+    @State var name: String
+    @State var hex: String
+    let save: (String, String) -> Bool
+
+    init(title: String, confirmTitle: String, name: String, hex: String, save: @escaping (String, String) -> Bool) {
+        self.title = title
+        self.confirmTitle = confirmTitle
+        self._name = State(initialValue: name.isEmpty ? (Hex.normalized(hex).map(ColorNamer.name) ?? "") : name)
+        self._hex = State(initialValue: hex)
+        self.save = save
+    }
+
+    private var colorBinding: Binding<Color> {
+        Binding(get: { Hex.color(Hex.normalized(hex) ?? "808080") }, set: { hex = Hex.string(from: $0) })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.title2.weight(.semibold))
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Hex.color(Hex.normalized(hex) ?? "808080"))
+                    .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
+                    .frame(width: 56, height: 56)
+                Form {
+                    TextField("Name", text: $name)
+                    HStack {
+                        TextField("Hex", text: $hex)
+                        ColorPicker("Color", selection: colorBinding, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                }
+            }
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(confirmTitle) {
+                    if save(name, hex) { dismiss() }
+                }
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Hex.normalized(hex) == nil)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
+    }
+}
+
+private struct NameSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let message: String?
+    let confirmTitle: String
+    @State var name: String
+    let save: (String) -> Bool
+
+    init(title: String, message: String?, confirmTitle: String, name: String, save: @escaping (String) -> Bool) {
+        self.title = title
+        self.message = message
+        self.confirmTitle = confirmTitle
+        self._name = State(initialValue: name)
+        self.save = save
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.title2.weight(.semibold))
+            if let message {
+                Text(message).foregroundStyle(.secondary)
+            }
+            TextField("Name", text: $name)
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(confirmTitle) {
+                    if save(name) { dismiss() }
+                }
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
     }
 }
