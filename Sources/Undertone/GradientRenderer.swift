@@ -24,7 +24,7 @@ enum GradientRenderer {
         }
         let suppliedStops = recipe.stops.map(RenderStop.init)
         let hasColors = !suppliedStops.isEmpty
-        let stops = recipe.mode == .magicSingle && hasColors
+        let stops = recipe.mode == .tonal && hasColors
             ? magicSingleStops(base: suppliedStops[0], variation: recipe.colorArc, seed: recipe.seed)
             : suppliedStops
         let flow = clamp(recipe.flow, lower: 0, upper: 1)
@@ -45,7 +45,7 @@ enum GradientRenderer {
         let palette = hasColors
             ? makePalette(
                 stops: stops,
-                magic: recipe.mode == .magicLinear || recipe.mode == .aurora,
+                magic: recipe.mode == .linear || recipe.mode == .aurora,
                 easing: recipe.easing,
                 colorArc: recipe.colorArc,
                 seed: recipe.seed
@@ -71,9 +71,9 @@ enum GradientRenderer {
                 if !hasColors {
                     color = emptyColor
                 } else { switch recipe.mode {
-                case .organic, .magicSingle:
+                case .organic, .tonal:
                     color = organicColor(stops: stops, x: x + xWarp[row], y: y + yWarp[column], softnessCore: softnessCore)
-                case .linear, .magicLinear:
+                case .linear:
                     let coordinate = 0.5 + (x - 0.5) * axisX + (y - 0.5) * axisY
                     color = paletteColor(palette, at: 0.5 + (coordinate - position) / fadeWidth)
                 case .radial:

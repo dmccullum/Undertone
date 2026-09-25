@@ -69,7 +69,7 @@ final class RendererTests: XCTestCase {
 
     func testMagicSingleRendersFromOneColorAndRespondsToVariation() throws {
         var recipe = testRecipe()
-        recipe.mode = .magicSingle
+        recipe.mode = .tonal
         recipe.stops = [ColorStop(hex: "2068FF", x: 0.5, y: 0.5)]
         recipe.grain = 0
         recipe.colorArc = 0
@@ -82,7 +82,7 @@ final class RendererTests: XCTestCase {
 
     func testMagicSingleSeedChangesCompositionWithoutGrain() throws {
         var recipe = testRecipe(seed: 10)
-        recipe.mode = .magicSingle
+        recipe.mode = .tonal
         recipe.stops = [ColorStop(hex: "2068FF", x: 0.5, y: 0.5)]
         recipe.grain = 0
         let first = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
