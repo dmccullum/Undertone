@@ -16,6 +16,7 @@ struct ColorStop: Codable, Identifiable, Equatable, Sendable {
 enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case organic
     case linear
+    case softLinear
     case magicLinear
     case magicSingle
     case radial
@@ -26,6 +27,7 @@ enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .organic: "Organic"
         case .linear: "Linear"
+        case .softLinear: "Soft Linear"
         case .magicLinear: "Magic Linear"
         case .magicSingle: "Magic Single"
         case .radial: "Radial Glow"
@@ -41,20 +43,27 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var softness: Double = 0.55
     var angleDegrees: Double = 0
     var gradientPosition: Double = 0.5
+    /// The visible start and end points for linear gradients. The legacy angle and
+    /// position values remain so saved Aurora recipes continue to render unchanged.
+    var linearStartX: Double = 0
+    var linearStartY: Double = 0.5
+    var linearEndX: Double = 1
+    var linearEndY: Double = 0.5
     var fadeWidth: Double = 1
     var easing: Double = 0.55
     var colorArc: Double = 0.35
     var centerX: Double = 0.5
     var centerY: Double = 0.5
-    var grain: Double = 0.20
+    var isTextureEnabled: Bool = true
+    var grain: Double = 0.18
     var grainSize: Double = 1.0
     var seed: UInt64 = 42
     var width: Int = 2160
     var height: Int = 2880
 
     enum CodingKeys: String, CodingKey {
-        case stops, mode, flow, softness, angleDegrees, gradientPosition, fadeWidth
-        case easing, colorArc, centerX, centerY, grain, grainSize, seed, width, height
+        case stops, mode, flow, softness, angleDegrees, gradientPosition, linearStartX, linearStartY, linearEndX, linearEndY, fadeWidth
+        case easing, colorArc, centerX, centerY, isTextureEnabled, grain, grainSize, seed, width, height
     }
 
     init(
@@ -64,12 +73,17 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         softness: Double = 0.55,
         angleDegrees: Double = 0,
         gradientPosition: Double = 0.5,
+        linearStartX: Double = 0,
+        linearStartY: Double = 0.5,
+        linearEndX: Double = 1,
+        linearEndY: Double = 0.5,
         fadeWidth: Double = 1,
         easing: Double = 0.55,
         colorArc: Double = 0.35,
         centerX: Double = 0.5,
         centerY: Double = 0.5,
-        grain: Double = 0.20,
+        isTextureEnabled: Bool = true,
+        grain: Double = 0.18,
         grainSize: Double = 1,
         seed: UInt64 = 42,
         width: Int = 2160,
@@ -81,11 +95,16 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         self.softness = softness
         self.angleDegrees = angleDegrees
         self.gradientPosition = gradientPosition
+        self.linearStartX = linearStartX
+        self.linearStartY = linearStartY
+        self.linearEndX = linearEndX
+        self.linearEndY = linearEndY
         self.fadeWidth = fadeWidth
         self.easing = easing
         self.colorArc = colorArc
         self.centerX = centerX
         self.centerY = centerY
+        self.isTextureEnabled = isTextureEnabled
         self.grain = grain
         self.grainSize = grainSize
         self.seed = seed
@@ -101,11 +120,16 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         softness = try values.decodeIfPresent(Double.self, forKey: .softness) ?? softness
         angleDegrees = try values.decodeIfPresent(Double.self, forKey: .angleDegrees) ?? angleDegrees
         gradientPosition = try values.decodeIfPresent(Double.self, forKey: .gradientPosition) ?? gradientPosition
+        linearStartX = try values.decodeIfPresent(Double.self, forKey: .linearStartX) ?? linearStartX
+        linearStartY = try values.decodeIfPresent(Double.self, forKey: .linearStartY) ?? linearStartY
+        linearEndX = try values.decodeIfPresent(Double.self, forKey: .linearEndX) ?? linearEndX
+        linearEndY = try values.decodeIfPresent(Double.self, forKey: .linearEndY) ?? linearEndY
         fadeWidth = try values.decodeIfPresent(Double.self, forKey: .fadeWidth) ?? fadeWidth
         easing = try values.decodeIfPresent(Double.self, forKey: .easing) ?? easing
         colorArc = try values.decodeIfPresent(Double.self, forKey: .colorArc) ?? colorArc
         centerX = try values.decodeIfPresent(Double.self, forKey: .centerX) ?? centerX
         centerY = try values.decodeIfPresent(Double.self, forKey: .centerY) ?? centerY
+        isTextureEnabled = try values.decodeIfPresent(Bool.self, forKey: .isTextureEnabled) ?? isTextureEnabled
         grain = try values.decodeIfPresent(Double.self, forKey: .grain) ?? grain
         grainSize = try values.decodeIfPresent(Double.self, forKey: .grainSize) ?? grainSize
         seed = try values.decodeIfPresent(UInt64.self, forKey: .seed) ?? seed

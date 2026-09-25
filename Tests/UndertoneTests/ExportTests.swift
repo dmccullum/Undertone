@@ -33,4 +33,30 @@ final class ExportTests: XCTestCase {
         XCTAssertEqual(decoded.fadeWidth, 1)
         XCTAssertEqual(decoded.centerX, 0.5)
     }
+
+    @MainActor func testLastCompositionIsRestoredOnLaunch() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.recipe.mode = .aurora
+        model.recipe.colorArc = 0.61
+        model.recipe.stops = [.init(hex: "123456", x: 0.2, y: 0.8)]
+        model.refreshPreview()
+        model.flushLastRecipe()
+
+        let restored = StudioModel(directory: folder)
+        XCTAssertEqual(restored.recipe.mode, .aurora)
+        XCTAssertEqual(restored.recipe.colorArc, 0.61)
+        XCTAssertEqual(restored.recipe.stops.map(\.hex), ["123456"])
+    }
+
+    @MainActor func testAuroraResetUsesZeroColorArc() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.recipe.mode = .aurora
+        model.recipe.colorArc = 0.8
+        model.resetGradientSettings()
+        XCTAssertEqual(model.recipe.colorArc, 0)
+    }
 }

@@ -6,12 +6,22 @@ APP="$PWD/build/Undertone.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Undertone "$APP/Contents/MacOS/Undertone"
 ICONSET="$PWD/build/Undertone.iconset"
+ICON_SOURCE="$PWD/Icon/Undertone.icon"
+ICON_RENDERER="/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
+"$ICON_RENDERER" "$ICON_SOURCE" \
+    --export-image \
+    --output-file "$PWD/build/Undertone-icon.png" \
+    --platform macOS \
+    --rendition Default \
+    --width 1024 \
+    --height 1024 \
+    --scale 1
 for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" assets/Undertone-icon.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z "$size" "$size" "$PWD/build/Undertone-icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
     double=$((size * 2))
-    sips -z "$double" "$double" assets/Undertone-icon.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+    sips -z "$double" "$double" "$PWD/build/Undertone-icon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 /usr/bin/python3 scripts/package-icon.py "$ICONSET" "$APP/Contents/Resources/Undertone.icns"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
