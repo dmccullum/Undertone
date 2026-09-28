@@ -168,7 +168,10 @@ private struct ArtworkView: View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         return ZStack {
             shape.fill(Color(nsColor: .controlBackgroundColor))
-            if let image = model.preview {
+            if let metal = RenderEngine.metal {
+                MetalCanvas(recipe: model.recipe, renderer: metal)
+                    .frame(width: size.width, height: size.height)
+            } else if let image = model.preview {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)

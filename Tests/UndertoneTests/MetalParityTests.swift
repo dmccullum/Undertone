@@ -24,6 +24,16 @@ final class MetalParityTests: XCTestCase {
         print("Metal parity\n" + report.joined(separator: "\n"))
     }
 
+    /// The per-Mac gate the app runs at launch: this Mac's GPU must match the CPU within 2/255 on the
+    /// fixtures, and the engine then renders on the GPU.
+    func testThisMacPassesTheLaunchSelfTest() throws {
+        let gpu = try renderer()
+        let worst = try RenderEngine.selfTest(gpu)
+        print("Launch self-test: largest channel difference \(worst)/255")
+        XCTAssertLessThanOrEqual(worst, RenderEngine.tolerance)
+        XCTAssertTrue(RenderEngine.usesGPU)
+    }
+
     /// Full export sizes. Slow on the CPU in debug builds, so run on demand:
     ///     UNDERTONE_PARITY_FULL=1 swift test -c release --filter MetalParityTests
     func testFullSizeExportsMatch() throws {

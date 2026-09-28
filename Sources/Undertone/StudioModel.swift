@@ -7,11 +7,9 @@ import UniformTypeIdentifiers
     private static let canvasHeightPreference = "canvasHeight"
     private static let currentGradientPreference = "currentGradientID"
     static let maximumStops = 8
-    /// Longest side of the on-screen preview. The interactive (dragging) and settled sizes match so
-    /// grain — which is per-pixel noise and looks coarser at low resolution — doesn't visibly change
-    /// when the sharp render settles in.
-    private static let settledPreviewSize = 1_280.0
-    private static let interactivePreviewSize = 1_280.0
+    /// Longest side of the preview image. On the GPU the canvas draws itself at full resolution
+    /// (`MetalCanvas`), so this image only feeds the blurred backdrop; on the CPU it is the canvas.
+    nonisolated private static var previewSize: Double { RenderEngine.usesGPU ? 256 : 1_280 }
 
     @Published var recipe = GradientRecipe() {
         didSet { recipeDidChange(from: oldValue) }
@@ -70,6 +68,8 @@ import UniformTypeIdentifiers
         legacyColorsURL = directory.appendingPathComponent("colors.json")
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
         catch { errorMessage = "Could not open your library folder: \(error.localizedDescription)" }
+        // Compile the shader and run the GPU self-test off the main thread before the canvas needs it.
+        Task.detached(priority: .userInitiated) { _ = RenderEngine.usesGPU }
         loadColorLibraries()
         loadGradients()
         restoreCurrentGradient()
@@ -351,7 +351,7 @@ import UniformTypeIdentifiers
         small.grain = 0
         let scale = 120.0 / Double(max(1, max(small.width, small.height)))
         let width = max(1, Int(Double(small.width) * scale)), height = max(1, Int(Double(small.height) * scale))
-        guard let image = try? GradientRenderer.render(small, width: width, height: height) else { return nil }
+        guard let image = try? RenderEngine.render(small, width: width, height: height) else { return nil }
         let result = NSImage(cgImage: image, size: NSSize(width: width, height: height))
         thumbnailCache[gradient.id] = (gradient.recipe, result)
         return result
@@ -978,18 +978,17 @@ import UniformTypeIdentifiers
         let snapshot = recipe
         let animated = animateNextPreview
         animateNextPreview = false
-        let longSide = interactive ? Self.interactivePreviewSize : Self.settledPreviewSize
-        let scale = min(1, longSide / Double(max(1, max(snapshot.width, snapshot.height))))
-        let width = max(1, Int(Double(snapshot.width) * scale))
-        let height = max(1, Int(Double(snapshot.height) * scale))
         Task {
             let result: Result<CGImage, Error> = await Task.detached(priority: .userInitiated) {
-                Result { try GradientRenderer.render(snapshot, width: width, height: height) }
+                let scale = min(1, Self.previewSize / Double(max(1, max(snapshot.width, snapshot.height))))
+                let width = max(1, Int(Double(snapshot.width) * scale))
+                let height = max(1, Int(Double(snapshot.height) * scale))
+                return Result { try RenderEngine.render(snapshot, width: width, height: height) }
             }.value
             self.renderInFlight = false
             switch result {
             case .success(let image):
-                let rendered = NSImage(cgImage: image, size: NSSize(width: width, height: height))
+                let rendered = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
                 self.displayedIsInteractive = interactive
                 if animated {
                     withAnimation(.easeInOut(duration: 0.28)) {
@@ -1030,7 +1029,7 @@ import UniformTypeIdentifiers
             var variant = recipe
             variant.mode = mode
             variant.grain = 0
-            if let image = try? GradientRenderer.render(variant, width: 120, height: 90) { styles[mode] = image }
+            if let image = try? RenderEngine.render(variant, width: 120, height: 90) { styles[mode] = image }
         }
         return styles
     }
@@ -1065,7 +1064,7 @@ import UniformTypeIdentifiers
         Task {
             defer { isRendering = false }
             do {
-                let image = try await Task.detached(priority: .userInitiated) { try GradientRenderer.render(snapshot, width: snapshot.width, height: snapshot.height) }.value
+                let image = try await Task.detached(priority: .userInitiated) { try RenderEngine.render(snapshot, width: snapshot.width, height: snapshot.height) }.value
                 try completion(image, snapshot)
             } catch { errorMessage = "Export failed: \(error.localizedDescription)" }
         }
@@ -1090,7 +1089,7 @@ import UniformTypeIdentifiers
 
     /// Synchronous PNG for Edit > Copy while the canvas has focus.
     func copyItemProvider() -> NSItemProvider? {
-        guard let image = try? GradientRenderer.render(recipe, width: recipe.width, height: recipe.height),
+        guard let image = try? RenderEngine.render(recipe, width: recipe.width, height: recipe.height),
               let data = try? Self.encoded(image) else { return nil }
         flash("Copied \(recipe.width) × \(recipe.height) image")
         return NSItemProvider(item: data as NSData, typeIdentifier: UTType.png.identifier)
@@ -1105,7 +1104,7 @@ import UniformTypeIdentifiers
         provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let image = try GradientRenderer.render(snapshot, width: snapshot.width, height: snapshot.height)
+                    let image = try RenderEngine.render(snapshot, width: snapshot.width, height: snapshot.height)
                     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     let url = folder.appendingPathComponent(fileName)
