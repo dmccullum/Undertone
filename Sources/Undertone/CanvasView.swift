@@ -182,6 +182,9 @@ private struct ArtworkView: View {
             } else {
                 ProgressView().controlSize(.small)
             }
+            // Drag out and ⌘C; the handles sit above this, so they still get their own clicks.
+            CanvasDragSource(model: model)
+                .frame(width: size.width, height: size.height)
         }
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
@@ -194,10 +197,6 @@ private struct ArtworkView: View {
                 .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
         }
         .contentShape(shape)
-        .onDrag { model.dragItemProvider() }
-        .focusable()
-        .focusEffectDisabled()
-        .onCopyCommand { model.copyItemProvider().map { [$0] } ?? [] }
         .help("Drag into Finder, Canva or any app to export")
     }
 

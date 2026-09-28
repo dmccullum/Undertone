@@ -58,6 +58,7 @@ import UniformTypeIdentifiers
     private var undoBurstOpen = false
     private var animateNextPreview = false
     private var thumbnailCache: [UUID: (recipe: GradientRecipe, image: NSImage)] = [:]
+    private var dragFileCache: (recipe: GradientRecipe, url: URL)?
     private var terminationObserver: NSObjectProtocol?
 
     init(directory: URL? = nil) {
@@ -1020,6 +1021,7 @@ import UniformTypeIdentifiers
             let styles = await Task.detached(priority: .utility) { Self.renderStyleThumbnails(for: snapshot) }.value
             guard !Task.isCancelled else { return }
             self.styleThumbnails = styles.mapValues { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+            self.prepareDragFile()
         }
     }
 
@@ -1087,36 +1089,37 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// Synchronous PNG for Edit > Copy while the canvas has focus.
-    func copyItemProvider() -> NSItemProvider? {
-        guard let image = try? RenderEngine.render(recipe, width: recipe.width, height: recipe.height),
-              let data = try? Self.encoded(image) else { return nil }
-        flash("Copied \(recipe.width) × \(recipe.height) image")
-        return NSItemProvider(item: data as NSData, typeIdentifier: UTType.png.identifier)
+    /// The full-size PNG a canvas drag hands out, named like an export ("Dusk 2160x2880.png"). It is
+    /// written ahead of time when edits settle, so a drag starts instantly with a real file every
+    /// destination understands; if the artwork changed since, it's rendered on the spot.
+    func dragFile() -> URL? {
+        let name = exportFileName(extension: "png")
+        if let cached = dragFileCache, cached.recipe == recipe, cached.url.lastPathComponent == name,
+           FileManager.default.fileExists(atPath: cached.url.path) { return cached.url }
+        guard let url = try? Self.writeDragFile(recipe, name: name) else { return nil }
+        dragFileCache = (recipe, url)
+        return url
     }
 
-    /// Renders the full-size PNG only when the drop target asks for it.
-    func dragItemProvider() -> NSItemProvider {
-        let snapshot = recipe
-        let fileName = exportFileName(extension: "png")
-        let provider = NSItemProvider()
-        provider.suggestedName = fileName
-        provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let image = try RenderEngine.render(snapshot, width: snapshot.width, height: snapshot.height)
-                    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    let url = folder.appendingPathComponent(fileName)
-                    try StudioModel.encoded(image).write(to: url, options: .atomic)
-                    completion(url, false, nil)
-                } catch {
-                    completion(nil, false, error)
-                }
-            }
-            return nil
+    /// Writes the drag file in the background so it's ready before the next drag.
+    private func prepareDragFile() {
+        let snapshot = recipe, name = exportFileName(extension: "png")
+        if let cached = dragFileCache, cached.recipe == snapshot, cached.url.lastPathComponent == name { return }
+        Task {
+            guard let url = await Task.detached(priority: .utility, operation: { try? Self.writeDragFile(snapshot, name: name) }).value,
+                  self.recipe == snapshot else { return }
+            self.dragFileCache = (snapshot, url)
         }
-        return provider
+    }
+
+    nonisolated private static func writeDragFile(_ recipe: GradientRecipe, name: String) throws -> URL {
+        let image = try RenderEngine.render(recipe, width: recipe.width, height: recipe.height)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Undertone Drags", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(name)
+        try encoded(image).write(to: url, options: .atomic)
+        return url
     }
 
     func exportImage() {
