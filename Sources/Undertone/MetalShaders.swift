@@ -8,7 +8,7 @@ enum MetalFloat: Int, CaseIterable {
     case centerX, centerY, fadeWidth
     case axisX, axisY, crossX, crossY, position, flow, phase
     case softnessCore, swirlStrength, swirlCenterX, swirlCenterY
-    case organicCore, organicFlow, organicPersistence, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
+    case organicCore, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
     case meshScaleX, meshScaleY
     case emptyRed, emptyGreen, emptyBlue
 }
@@ -16,13 +16,13 @@ enum MetalFloat: Int, CaseIterable {
 /// Slots in the integer parameter buffer.
 enum MetalInt: Int, CaseIterable {
     case width, height, mode, hasColors, grainCellSize, grainSeed
-    case stopCount, paletteCount, waveCount, octaves, organicSeed
+    case stopCount, paletteCount, currentCount, flowSteps
     case tileColumns, tileRows, tileSize, latticeCount
 }
 
 /// Buffer indices shared by every kernel.
 enum MetalBuffer: Int, CaseIterable {
-    case floats, ints, stops, palette, waves, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices, output
+    case floats, ints, stops, palette, currents, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices, output
 }
 
 /// The mode numbers the kernel switches on.
@@ -59,7 +59,7 @@ enum MetalShaders {
         constant int *i;
         constant float4 *stops;
         constant float4 *palette;
-        constant float4 *waves;
+        constant float4 *currents;
         constant float *xWarp;
         constant float *yWarp;
         constant float4 *lattice;
@@ -110,40 +110,17 @@ enum MetalShaders {
         return float(value >> 8) / 16777216.0f * 2.0f - 1.0f;
     }
 
-    static float organicNoise(float x, float y, uint seed) {
-        float cellX = floor(x), cellY = floor(y);
-        float fx = x - cellX, fy = y - cellY;
-        float ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10), uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
-        int ix = int(cellX), iy = int(cellY);
-        float a = hashNoise(ix, iy, seed), b = hashNoise(ix + 1, iy, seed);
-        float c = hashNoise(ix, iy + 1, seed), d = hashNoise(ix + 1, iy + 1, seed);
-        return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
-    }
-
-    static float fbm(float x, float y, uint seed, int octaves, float persistence) {
-        float px = x, py = y, amplitude = 0.6f, total = 0;
-        for (int octave = 0; octave < octaves; octave++) {
-            total += amplitude * organicNoise(px, py, seed + uint(octave));
-            float rx = 0.8f * px - 0.6f * py, ry = 0.6f * px + 0.8f * py;
-            px = rx * 2.03f + 1.7f; py = ry * 2.03f + 9.2f;
-            amplitude *= persistence;
-        }
-        return total;
-    }
-
     static float3 organicColor(const thread Inputs &in, float x, float y) {
         float px = x, py = y;
-        float flow = in.f[F_organicFlow];
-        if (flow > 0) {
-            uint seed = uint(in.i[I_organicSeed]);
-            int octaves = in.i[I_octaves];
-            float p = in.f[F_organicPersistence];
-            float bx = x * 1.35f, by = y * 1.35f;
-            float qx = fbm(bx, by, seed, octaves, p), qy = fbm(bx + 5.2f, by + 1.3f, seed + 17, octaves, p);
-            float rx = fbm(bx + 2.6f * qx + 1.7f, by + 2.6f * qy + 9.2f, seed + 31, octaves, p);
-            float ry = fbm(bx + 2.6f * qx + 8.3f, by + 2.6f * qy + 2.8f, seed + 47, octaves, p);
-            px += rx * flow;
-            py += ry * flow;
+        for (int step = 0; step < in.i[I_flowSteps]; step++) {
+            for (int c = 0; c < in.i[I_currentCount]; c++) {
+                float4 current = in.currents[c];
+                float dx = px - current.x, dy = py - current.y;
+                float angle = current.z * exp(-(dx * dx + dy * dy) * current.w);
+                float cosA = cos(angle), sinA = sin(angle);
+                px = current.x + dx * cosA - dy * sinA;
+                py = current.y + dx * sinA + dy * cosA;
+            }
         }
         float swirl = in.f[F_organicSwirlStrength];
         if (swirl != 0) {
@@ -300,7 +277,7 @@ enum MetalShaders {
         constant int *i [[buffer(B_ints)]], \\
         constant float4 *stops [[buffer(B_stops)]], \\
         constant float4 *palette [[buffer(B_palette)]], \\
-        constant float4 *waves [[buffer(B_waves)]], \\
+        constant float4 *currents [[buffer(B_currents)]], \\
         constant float *xWarp [[buffer(B_xWarp)]], \\
         constant float *yWarp [[buffer(B_yWarp)]], \\
         constant float4 *lattice [[buffer(B_lattice)]], \\
@@ -309,7 +286,7 @@ enum MetalShaders {
         constant uint *tileOffsets [[buffer(B_tileOffsets)]], \\
         constant uint *tileIndices [[buffer(B_tileIndices)]]
 
-    #define GATHER Inputs in = { f, i, stops, palette, waves, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices };
+    #define GATHER Inputs in = { f, i, stops, palette, currents, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices };
 
     /// Export: 8-bit sRGB bytes, rounded half up exactly like the CPU renderer.
     kernel void renderBytes(INPUTS, device uchar4 *output [[buffer(B_output)]], uint2 gid [[thread_position_in_grid]]) {
