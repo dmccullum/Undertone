@@ -8,7 +8,7 @@ enum MetalFloat: Int, CaseIterable {
     case centerX, centerY, fadeWidth
     case axisX, axisY, crossX, crossY, position, flow, phase
     case softnessCore, swirlStrength, swirlCenterX, swirlCenterY
-    case organicCore, organicFlowStep, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
+    case organicCore, organicFlow, organicPersistence, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
     case meshScaleX, meshScaleY
     case emptyRed, emptyGreen, emptyBlue
 }
@@ -16,7 +16,7 @@ enum MetalFloat: Int, CaseIterable {
 /// Slots in the integer parameter buffer.
 enum MetalInt: Int, CaseIterable {
     case width, height, mode, hasColors, grainCellSize, grainSeed
-    case stopCount, paletteCount, waveCount, flowSteps
+    case stopCount, paletteCount, waveCount, octaves, organicSeed
     case tileColumns, tileRows, tileSize, latticeCount
 }
 
@@ -96,21 +96,54 @@ enum MetalShaders {
         return in.palette[index].rgb;
     }
 
-    static float3 organicColor(const thread Inputs &in, int column, int row, float x, float y) {
-        float px = x + in.xWarp[row], py = y + in.yWarp[column];
-        float step = in.f[F_organicFlowStep];
-        if (step > 0) {
-            for (int s = 0; s < in.i[I_flowSteps]; s++) {
-                float vx = 0, vy = 0;
-                for (int w = 0; w < in.i[I_waveCount]; w++) {
-                    float4 wave = in.waves[w];
-                    float c = cos((px * wave.x + py * wave.y) * wave.z + wave.w);
-                    vx += c * wave.y;
-                    vy -= c * wave.x;
-                }
-                px += vx * step;
-                py += vy * step;
-            }
+    static uint hash32(uint value) {
+        value ^= value >> 16;
+        value *= 0x7FEB352Du;
+        value ^= value >> 15;
+        value *= 0x846CA68Bu;
+        value ^= value >> 16;
+        return value;
+    }
+
+    static float hashNoise(int x, int y, uint seed) {
+        uint value = hash32(uint(x) + hash32(uint(y) + hash32(seed)));
+        return float(value >> 8) / 16777216.0f * 2.0f - 1.0f;
+    }
+
+    static float organicNoise(float x, float y, uint seed) {
+        float cellX = floor(x), cellY = floor(y);
+        float fx = x - cellX, fy = y - cellY;
+        float ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10), uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+        int ix = int(cellX), iy = int(cellY);
+        float a = hashNoise(ix, iy, seed), b = hashNoise(ix + 1, iy, seed);
+        float c = hashNoise(ix, iy + 1, seed), d = hashNoise(ix + 1, iy + 1, seed);
+        return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+    }
+
+    static float fbm(float x, float y, uint seed, int octaves, float persistence) {
+        float px = x, py = y, amplitude = 0.6f, total = 0;
+        for (int octave = 0; octave < octaves; octave++) {
+            total += amplitude * organicNoise(px, py, seed + uint(octave));
+            float rx = 0.8f * px - 0.6f * py, ry = 0.6f * px + 0.8f * py;
+            px = rx * 2.03f + 1.7f; py = ry * 2.03f + 9.2f;
+            amplitude *= persistence;
+        }
+        return total;
+    }
+
+    static float3 organicColor(const thread Inputs &in, float x, float y) {
+        float px = x, py = y;
+        float flow = in.f[F_organicFlow];
+        if (flow > 0) {
+            uint seed = uint(in.i[I_organicSeed]);
+            int octaves = in.i[I_octaves];
+            float p = in.f[F_organicPersistence];
+            float bx = x * 1.35f, by = y * 1.35f;
+            float qx = fbm(bx, by, seed, octaves, p), qy = fbm(bx + 5.2f, by + 1.3f, seed + 17, octaves, p);
+            float rx = fbm(bx + 2.6f * qx + 1.7f, by + 2.6f * qy + 9.2f, seed + 31, octaves, p);
+            float ry = fbm(bx + 2.6f * qx + 8.3f, by + 2.6f * qy + 2.8f, seed + 47, octaves, p);
+            px += rx * flow;
+            py += ry * flow;
         }
         float swirl = in.f[F_organicSwirlStrength];
         if (swirl != 0) {
@@ -198,20 +231,6 @@ enum MetalShaders {
         return oklabToSRGB(in.latticeColors[nearest].xyz);
     }
 
-    static uint hash32(uint value) {
-        value ^= value >> 16;
-        value *= 0x7FEB352Du;
-        value ^= value >> 15;
-        value *= 0x846CA68Bu;
-        value ^= value >> 16;
-        return value;
-    }
-
-    static float hashNoise(int x, int y, uint seed) {
-        uint value = hash32(uint(x) + hash32(uint(y) + hash32(seed)));
-        return float(value >> 8) / 16777216.0f * 2.0f - 1.0f;
-    }
-
     static float grainNoise(int x, int y, int cell, uint seed) {
         if (cell == 1) { return hashNoise(x, y, seed); }
         int cellX = x / cell, cellY = y / cell;
@@ -244,7 +263,7 @@ enum MetalShaders {
             color = float3(in.f[F_emptyRed], in.f[F_emptyGreen], in.f[F_emptyBlue]);
         } else {
             switch (in.i[I_mode]) {
-            case 0: color = organicColor(in, column, row, x, y); break;
+            case 0: color = organicColor(in, x, y); break;
             case 1: color = meshColor(in, column, row, x, y); break;
             case 3: color = tonalColor(in, column, row, x, y); break;
             case 2: {

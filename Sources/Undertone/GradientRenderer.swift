@@ -146,9 +146,8 @@ enum GradientRenderer {
                     seed: recipe.seed
                 )
                 : [Self.emptyColor]
-            // Organic and Tonal share a broad, seeded warp: the seed shifts its phases, so either can be
-            // reshuffled without changing color.
-            let tonal = recipe.mode == .tonal || recipe.mode == .organic
+            // The seed shifts Tonal's flow field phases, so it can be reshuffled without changing color.
+            let tonal = recipe.mode == .tonal
             xWarp = tonal ? (0..<height).map { row -> Double in
                 let y = normalizedCoordinate(row, count: height)
                 return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2 + phase) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2 + phase * 1.7) * 0.32)
@@ -164,7 +163,7 @@ enum GradientRenderer {
             let x = normalizedCoordinate(column, count: width), y = normalizedCoordinate(row, count: height)
             switch mode {
             case .organic:
-                return organic?.color(x: x + xWarp[row], y: y + yWarp[column]) ?? Self.emptyColor
+                return organic?.color(x: x, y: y) ?? Self.emptyColor
             case .mesh:
                 return mesh?.color(x: x, y: y, column: column, row: row) ?? Self.emptyColor
             case .tonal:
@@ -218,20 +217,22 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    /// Organic: loose, liquid color. Each point is a soft field with a long, gentle falloff (inverse
-    /// square around a softness core), blended in OKLab so wide mixes stay bright instead of going
-    /// muddy. Flow bends the canvas with broad, slow waves plus a light seeded curl, so borders billow
-    /// rather than streak; Swirl twists the middle. Each seed is its own happy accident.
+    /// Organic: color that flows like ink in water. The canvas is bent by a fractal noise field that is
+    /// itself bent by noise (nested domain warping), so borders curl into ribbons and tendrils in every
+    /// direction; the points only set where each color roughly lives. Blending is in OKLab with lost
+    /// saturation partly restored, so mixes stay vivid. Flow sets how far the color travels, Softness
+    /// how wide the blends are, Swirl adds a vortex, and every seed is its own marbling.
     struct OrganicField: Sendable {
-        struct Wave: Sendable { let dx: Double; let dy: Double; let frequency: Double; let phase: Double }
-        static let flowSteps = 3
+        static let octaves = 3
 
         let labs: [OKLab]
         let chromas: [Double]
         let xs: [Double], ys: [Double], weights: [Double]
         let core: Double
-        let waves: [Wave]
-        let flowStep: Double
+        let flowAmount: Double
+        /// How much each finer octave keeps: softness smooths the fine detail out of the flow.
+        let persistence: Double
+        let noiseSeed: UInt32
         let swirlStrength: Double, swirlCenterX: Double, swirlCenterY: Double
 
         init(recipe: GradientRecipe, stops: [RenderStop]) {
@@ -240,36 +241,49 @@ enum GradientRenderer {
             chromas = labs.map { sqrt($0.a * $0.a + $0.b * $0.b) }
             xs = stops.map(\.x); ys = stops.map(\.y); weights = stops.map(\.weight)
             let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
+            core = 0.0015 + softness * softness * 0.4
+            flowAmount = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1) * 0.5
+            persistence = 0.42 - softness * 0.22
+            noiseSeed = UInt32(truncatingIfNeeded: recipe.seed ^ (recipe.seed >> 32)) &+ 0x0A11_CE00
             let swirl = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
-            // Swirl compresses the field where it turns hardest; widen the core with it so edges stay soft.
-            core = (0.004 + softness * softness * 1.5) * (1 + swirl * 4)
-            // A light, divergence-free curl from a few long seeded waves: it rounds the borders into
-            // billows on top of the broad warp without fraying them.
-            waves = (0..<3).map { index in
-                let angle = GradientRenderer.seedUnit(recipe.seed, salt: UInt64(200 + index)) * .pi * 2
-                let phase = GradientRenderer.seedUnit(recipe.seed, salt: UInt64(300 + index)) * .pi * 2
-                return Wave(dx: cos(angle), dy: sin(angle), frequency: (0.6 + Double(index) * 0.35) * .pi * 2, phase: phase)
-            }
-            flowStep = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1) * 0.025
             swirlStrength = swirl * swirl * 8.0 * ((recipe.seed & 2) == 0 ? 1.0 : -1.0)
             swirlCenterX = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
             swirlCenterY = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 92) - 0.5) * 0.5
         }
 
-        /// `x` and `y` arrive already bent by the scene's broad warp.
+        /// Smooth value noise in -1...1 on an integer-hashed lattice (quintic fade, so no creases).
+        static func noise(_ x: Double, _ y: Double, _ seed: UInt32) -> Double {
+            let cellX = floor(x), cellY = floor(y)
+            let fx = x - cellX, fy = y - cellY
+            let ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10), uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10)
+            let ix = Int(cellX), iy = Int(cellY)
+            let a = GradientRenderer.hashNoise(x: ix, y: iy, seed: seed), b = GradientRenderer.hashNoise(x: ix + 1, y: iy, seed: seed)
+            let c = GradientRenderer.hashNoise(x: ix, y: iy + 1, seed: seed), d = GradientRenderer.hashNoise(x: ix + 1, y: iy + 1, seed: seed)
+            return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy
+        }
+
+        /// Fractal noise: octaves at doubling frequency, each rotated so no lattice direction shows.
+        static func fbm(_ x: Double, _ y: Double, _ seed: UInt32, persistence: Double) -> Double {
+            var px = x, py = y, amplitude = 0.6, total = 0.0
+            for octave in 0..<octaves {
+                total += amplitude * noise(px, py, seed &+ UInt32(octave))
+                let rx = 0.8 * px - 0.6 * py, ry = 0.6 * px + 0.8 * py
+                px = rx * 2.03 + 1.7; py = ry * 2.03 + 9.2
+                amplitude *= persistence
+            }
+            return total
+        }
+
         func color(x: Double, y: Double) -> RGB {
             var px = x, py = y
-            if flowStep > 0 {
-                for _ in 0..<Self.flowSteps {
-                    var vx = 0.0, vy = 0.0
-                    for wave in waves {
-                        let c = cos((px * wave.dx + py * wave.dy) * wave.frequency + wave.phase)
-                        vx += c * wave.dy
-                        vy -= c * wave.dx
-                    }
-                    px += vx * flowStep
-                    py += vy * flowStep
-                }
+            if flowAmount > 0 {
+                // Nested warp: q bends the space r is sampled in, and r bends the canvas.
+                let bx = x * 1.35, by = y * 1.35, p = persistence
+                let qx = Self.fbm(bx, by, noiseSeed, persistence: p), qy = Self.fbm(bx + 5.2, by + 1.3, noiseSeed &+ 17, persistence: p)
+                let rx = Self.fbm(bx + 2.6 * qx + 1.7, by + 2.6 * qy + 9.2, noiseSeed &+ 31, persistence: p)
+                let ry = Self.fbm(bx + 2.6 * qx + 8.3, by + 2.6 * qy + 2.8, noiseSeed &+ 47, persistence: p)
+                px += rx * flowAmount
+                py += ry * flowAmount
             }
             if swirlStrength != 0 {
                 let dx = px - swirlCenterX, dy = py - swirlCenterY
@@ -290,8 +304,7 @@ enum GradientRenderer {
                 chroma += chromas[index] * weight
             }
             a /= total; b /= total
-            // Averaging hues cancels saturation, so wide soft mixes drift to pastel gray. Give back part
-            // of what the mix lost (capped, so near-gray mixes of opposite colors stay calm).
+            // Averaging hues cancels saturation; give back part of what the mix lost (capped).
             let mixed = sqrt(a * a + b * b)
             if mixed > 1e-4 {
                 let restore = 1 + (min(chroma / total / mixed, 1.8) - 1) * 0.6
