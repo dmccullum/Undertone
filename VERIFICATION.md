@@ -1,6 +1,11 @@
 # First-build verification
 
-## Metal renderer (built and gated, not yet driving the app)
+## Metal renderer
+
+- The canvas is an `MTKView` (`MetalCanvas`) running the renderer's kernel straight into its sRGB drawable at full Retina resolution; it redraws only when the recipe or size changes. Export, Copy, drag-out, style tiles, sidebar thumbnails and the backdrop go through `RenderEngine`.
+- `RenderEngine` runs a self-test on first use (warmed up off the main thread at launch): eight fixtures rendered on both renderers must match within 2/255, or that Mac stays on the CPU. This Mac's worst difference is 1/255.
+
+### Original gate results
 
 - One compute kernel (`MetalShaders`, compiled at runtime) renders every style from the same `GradientRenderer.Scene` the CPU uses. `renderBytes` produces 8-bit sRGB export pixels; `renderTexture` writes the preview into a drawable. The CPU renderer stays the reference and fallback.
 - Parity gate (`MetalParityTests`): 20 recipes covering every style, grain sizes, swirl, bent 4×4 meshes, no colors and one color. Every channel of every pixel matches within 1/255 (the gate allows 2/255) at 257×343, 640×480, 2160×2880 and 3840×2160; at most 0.0036% of channels differ at all. Run the full sizes with `UNDERTONE_PARITY_FULL=1 swift test -c release --filter MetalParityTests`.

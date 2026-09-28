@@ -8,7 +8,9 @@ A native Mac studio for expressive gradients and film grain. Built with SwiftUI 
 swift run -c release
 ```
 
-Use the release configuration. A plain `swift run` builds for debugging, and the per-pixel renderer runs many times slower that way.
+Use the release configuration. A plain `swift run` builds for debugging, and the CPU renderer runs many times slower that way.
+
+Rendering runs on the GPU (Metal) when this Mac's GPU passes a self-test at launch: it renders a set of fixtures on the GPU and on the CPU reference and requires every pixel to match within 2/255. A Mac that doesn't pass keeps rendering on the CPU, so every Mac produces the same image within 2/255. All output is 8-bit sRGB.
 
 To package a local app:
 
