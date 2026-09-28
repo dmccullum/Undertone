@@ -174,11 +174,25 @@ struct InspectorView: View {
     @ViewBuilder private var styleControls: some View {
         switch model.recipe.mode {
         case .organic:
-            SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Flow")
+                    .font(.caption)
+                Picker("Flow", selection: $model.recipe.organicFlow) {
+                    ForEach(OrganicFlow.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .help("Still melts the colors in place, Pull drags each one in its own direction, Wave ripples the borders")
+            }
+            if model.recipe.organicFlow != .still {
+                SliderControl(title: model.recipe.organicFlow == .pull ? "Pull" : "Wave height", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            }
             SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
             SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
-            Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
-                .help("Reshape the flow without moving your colors")
+            if model.recipe.organicFlow != .still || model.recipe.swirl > 0 {
+                Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
+                    .help("New directions for the flow and swirl, without moving your colors")
+            }
         case .mesh:
             VStack(alignment: .leading, spacing: 6) {
                 Text("Grid")

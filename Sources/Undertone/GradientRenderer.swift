@@ -217,25 +217,27 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    /// Organic: colors that stir into each other like paint. Every point carries a gentle current, a
-    /// smooth swirl centered just off the point that fades with distance, and the canvas is twisted
-    /// through all of them in a few small steps. Borders between colors bend, wrap and spiral with only
-    /// large, smooth shapes (no texture), and because each current rides on its point, moving a point
-    /// morphs the whole composition around it. Blending is in OKLab with lost saturation partly
-    /// restored, so mixes stay vivid.
+    /// Organic: soft color fields around the points, blended in OKLab with lost saturation partly
+    /// restored, so mixes stay vivid. The flow style sets how the colors move:
+    /// - Still: the fields melt into each other; only the points shape them.
+    /// - Pull: each color stretches in its own seeded direction, like paint dragged by a brush.
+    /// - Wave: borders ripple in long, soft waves along a seeded direction, like combed marbling.
+    /// Flow sets how far colors are pulled or how high the waves run; Swirl adds a vortex.
     struct OrganicField: Sendable {
-        /// One point's current: its center, how far it turns the canvas per step, and 1 / radius².
-        struct Current: Sendable { let x: Double; let y: Double; let turn: Double; let falloff: Double }
-        static let steps = 3
-
+        let style: OrganicFlow
         let labs: [OKLab]
         let chromas: [Double]
         let xs: [Double], ys: [Double], weights: [Double]
+        /// Pull: each color's direction (radians) and how much longer it runs that way.
+        let pullAngles: [Double]
+        let pullStretch: Double, pullNarrow: Double
+        /// Wave: the direction the waves push, their phases and height.
+        let waveX: Double, waveY: Double, wavePhaseA: Double, wavePhaseB: Double, waveHeight: Double
         let core: Double
-        let currents: [Current]
         let swirlStrength: Double, swirlCenterX: Double, swirlCenterY: Double
 
         init(recipe: GradientRecipe, stops: [RenderStop]) {
+            style = recipe.organicFlow
             let labs = stops.map { OKLab($0.color) }
             self.labs = labs
             chromas = labs.map { sqrt($0.a * $0.a + $0.b * $0.b) }
@@ -243,20 +245,17 @@ enum GradientRenderer {
             let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
             core = 0.002 + softness * softness * 0.45
             let flow = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1)
-            // The seed sets each current's spin, strength and offset, so Shuffle Flow restirs the paint
-            // without moving any color.
-            currents = flow == 0 ? [] : stops.enumerated().map { index, stop in
-                let salt = UInt64(500 + index * 4)
-                let spin = GradientRenderer.seedUnit(recipe.seed, salt: salt) < 0.5 ? -1.0 : 1.0
-                let strength = 0.55 + GradientRenderer.seedUnit(recipe.seed, salt: salt + 1) * 0.45
-                let angle = GradientRenderer.seedUnit(recipe.seed, salt: salt + 2) * .pi * 2
-                let radius = 0.26 + GradientRenderer.seedUnit(recipe.seed, salt: salt + 3) * 0.14
-                return Current(
-                    x: stop.x + cos(angle) * 0.11, y: stop.y + sin(angle) * 0.11,
-                    turn: spin * strength * flow * 1.7 / Double(Self.steps),
-                    falloff: 1 / (radius * radius)
-                )
-            }
+            // The seed sets every direction and phase, so Shuffle Flow redraws them without moving color.
+            // One seeded brush direction, with each color straying from it a little.
+            let brush = GradientRenderer.seedUnit(recipe.seed, salt: 600) * .pi * 2
+            pullAngles = stops.indices.map { brush + (GradientRenderer.seedUnit(recipe.seed, salt: UInt64(601 + $0)) - 0.5) * 0.9 }
+            pullStretch = style == .pull ? 1 + flow * 2.6 : 1
+            pullNarrow = sqrt(pullStretch)
+            let waveAngle = GradientRenderer.seedUnit(recipe.seed, salt: 700) * .pi * 2
+            waveX = cos(waveAngle); waveY = sin(waveAngle)
+            wavePhaseA = GradientRenderer.seedUnit(recipe.seed, salt: 701) * .pi * 2
+            wavePhaseB = GradientRenderer.seedUnit(recipe.seed, salt: 702) * .pi * 2
+            waveHeight = style == .wave ? flow * 0.3 : 0
             let swirl = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
             swirlStrength = swirl * swirl * 8.0 * ((recipe.seed & 2) == 0 ? 1.0 : -1.0)
             swirlCenterX = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
@@ -265,15 +264,12 @@ enum GradientRenderer {
 
         func color(x: Double, y: Double) -> RGB {
             var px = x, py = y
-            // Stir: each step turns the canvas a little around every current, strongest near its center.
-            for _ in 0..<Self.steps {
-                for current in currents {
-                    let dx = px - current.x, dy = py - current.y
-                    let angle = current.turn * exp(-(dx * dx + dy * dy) * current.falloff)
-                    let cosA = cos(angle), sinA = sin(angle)
-                    px = current.x + dx * cosA - dy * sinA
-                    py = current.y + dx * sinA + dy * cosA
-                }
+            if waveHeight > 0 {
+                // Push along the wave direction by an amount that ripples across it.
+                let across = -px * waveY + py * waveX
+                let push = (sin(across * 6.9 + wavePhaseA) * 0.7 + sin(across * 3.6 + wavePhaseB) * 0.3) * waveHeight
+                px += waveX * push
+                py += waveY * push
             }
             if swirlStrength != 0 {
                 let dx = px - swirlCenterX, dy = py - swirlCenterY
@@ -284,7 +280,15 @@ enum GradientRenderer {
             }
             var total = 0.0, lightness = 0.0, a = 0.0, b = 0.0, chroma = 0.0
             for index in xs.indices {
-                let dx = px - xs[index], dy = py - ys[index]
+                var dx = px - xs[index], dy = py - ys[index]
+                if pullStretch != 1 {
+                    // Measure distance shorter along this color's direction and longer across it, so the
+                    // color runs out in a narrow smear instead of spreading over its neighbors.
+                    let cosA = cos(pullAngles[index]), sinA = sin(pullAngles[index])
+                    let along = dx * cosA + dy * sinA, across = -dx * sinA + dy * cosA
+                    dx = along / pullStretch
+                    dy = across * pullNarrow
+                }
                 let distance = dx * dx + dy * dy + core
                 let weight = weights[index] / (distance * distance)
                 total += weight

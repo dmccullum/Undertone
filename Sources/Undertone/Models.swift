@@ -31,6 +31,25 @@ struct ColorStop: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// How Organic's colors move: melt in place, stretch like dragged paint, or ripple in long waves.
+enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
+    case still, pull, wave
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .still: "Still"
+        case .pull: "Pull"
+        case .wave: "Wave"
+        }
+    }
+
+    /// Unknown values (from newer files) open as Still.
+    init(from decoder: Decoder) throws {
+        self = OrganicFlow(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .still
+    }
+}
+
 enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case organic
     case mesh
@@ -67,6 +86,7 @@ struct GradientRecipe: Codable, Equatable, Sendable {
 
     var stops: [ColorStop] = [.init(hex: "F3AC91", x: 0.18, y: 0.20), .init(hex: "7655A3", x: 0.78, y: 0.24), .init(hex: "F3CC91", x: 0.34, y: 0.82), .init(hex: "3B526E", x: 0.92, y: 0.85)]
     var mode: GradientMode = .organic
+    var organicFlow: OrganicFlow = .still
     var flow: Double = 0.55
     var softness: Double = 0.55
     /// Organic/Tonal: a vortex domain-warp that twirls the mesh. Its center and spin come from `seed`.
@@ -100,7 +120,7 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var version: Int = GradientRecipe.currentVersion
 
     enum CodingKeys: String, CodingKey {
-        case stops, mode, flow, softness, swirl, angleDegrees, gradientPosition, fadeWidth
+        case stops, mode, organicFlow, flow, softness, swirl, angleDegrees, gradientPosition, fadeWidth
         case startX, startY, endX, endY, smoothBlend
         case easing, colorArc, centerX, centerY, textureEnabled, grain, grainSize, seed, meshSize, meshVertices
         case width, height, version
@@ -164,6 +184,7 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         stops = try values.decodeIfPresent([ColorStop].self, forKey: .stops) ?? stops
         mode = try values.decodeIfPresent(GradientMode.self, forKey: .mode) ?? mode
+        organicFlow = try values.decodeIfPresent(OrganicFlow.self, forKey: .organicFlow) ?? organicFlow
         flow = try values.decodeIfPresent(Double.self, forKey: .flow) ?? flow
         softness = try values.decodeIfPresent(Double.self, forKey: .softness) ?? softness
         swirl = try values.decodeIfPresent(Double.self, forKey: .swirl) ?? swirl

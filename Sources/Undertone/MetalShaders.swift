@@ -9,6 +9,7 @@ enum MetalFloat: Int, CaseIterable {
     case axisX, axisY, crossX, crossY, position, flow, phase
     case softnessCore, swirlStrength, swirlCenterX, swirlCenterY
     case organicCore, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
+    case organicPullStretch, organicWaveX, organicWaveY, organicWavePhaseA, organicWavePhaseB, organicWaveHeight
     case meshScaleX, meshScaleY
     case emptyRed, emptyGreen, emptyBlue
 }
@@ -16,13 +17,13 @@ enum MetalFloat: Int, CaseIterable {
 /// Slots in the integer parameter buffer.
 enum MetalInt: Int, CaseIterable {
     case width, height, mode, hasColors, grainCellSize, grainSeed
-    case stopCount, paletteCount, currentCount, flowSteps
+    case stopCount, paletteCount
     case tileColumns, tileRows, tileSize, latticeCount
 }
 
 /// Buffer indices shared by every kernel.
 enum MetalBuffer: Int, CaseIterable {
-    case floats, ints, stops, palette, currents, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices, output
+    case floats, ints, stops, palette, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices, output
 }
 
 /// The mode numbers the kernel switches on.
@@ -59,7 +60,6 @@ enum MetalShaders {
         constant int *i;
         constant float4 *stops;
         constant float4 *palette;
-        constant float4 *currents;
         constant float *xWarp;
         constant float *yWarp;
         constant float4 *lattice;
@@ -112,15 +112,13 @@ enum MetalShaders {
 
     static float3 organicColor(const thread Inputs &in, float x, float y) {
         float px = x, py = y;
-        for (int step = 0; step < in.i[I_flowSteps]; step++) {
-            for (int c = 0; c < in.i[I_currentCount]; c++) {
-                float4 current = in.currents[c];
-                float dx = px - current.x, dy = py - current.y;
-                float angle = current.z * exp(-(dx * dx + dy * dy) * current.w);
-                float cosA = cos(angle), sinA = sin(angle);
-                px = current.x + dx * cosA - dy * sinA;
-                py = current.y + dx * sinA + dy * cosA;
-            }
+        float waveHeight = in.f[F_organicWaveHeight];
+        if (waveHeight > 0) {
+            float waveX = in.f[F_organicWaveX], waveY = in.f[F_organicWaveY];
+            float across = -px * waveY + py * waveX;
+            float push = (sin(across * 6.9f + in.f[F_organicWavePhaseA]) * 0.7f + sin(across * 3.6f + in.f[F_organicWavePhaseB]) * 0.3f) * waveHeight;
+            px += waveX * push;
+            py += waveY * push;
         }
         float swirl = in.f[F_organicSwirlStrength];
         if (swirl != 0) {
@@ -134,9 +132,16 @@ enum MetalShaders {
         float total = 0, chroma = 0;
         float3 lab = float3(0);
         float core = in.f[F_organicCore];
+        float stretch = in.f[F_organicPullStretch];
         for (int s = 0; s < in.i[I_stopCount]; s++) {
             float4 place = in.stops[s * 2 + 1];
             float dx = px - place.x, dy = py - place.y;
+            if (stretch != 1) {
+                float cosA = cos(place.w), sinA = sin(place.w);
+                float along = dx * cosA + dy * sinA, across = -dx * sinA + dy * cosA;
+                dx = along / stretch;
+                dy = across * sqrt(stretch);
+            }
             float distance = dx * dx + dy * dy + core;
             float weight = place.z / (distance * distance);
             total += weight;
@@ -277,7 +282,6 @@ enum MetalShaders {
         constant int *i [[buffer(B_ints)]], \\
         constant float4 *stops [[buffer(B_stops)]], \\
         constant float4 *palette [[buffer(B_palette)]], \\
-        constant float4 *currents [[buffer(B_currents)]], \\
         constant float *xWarp [[buffer(B_xWarp)]], \\
         constant float *yWarp [[buffer(B_yWarp)]], \\
         constant float4 *lattice [[buffer(B_lattice)]], \\
@@ -286,7 +290,7 @@ enum MetalShaders {
         constant uint *tileOffsets [[buffer(B_tileOffsets)]], \\
         constant uint *tileIndices [[buffer(B_tileIndices)]]
 
-    #define GATHER Inputs in = { f, i, stops, palette, currents, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices };
+    #define GATHER Inputs in = { f, i, stops, palette, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices };
 
     /// Export: 8-bit sRGB bytes, rounded half up exactly like the CPU renderer.
     kernel void renderBytes(INPUTS, device uchar4 *output [[buffer(B_output)]], uint2 gid [[thread_position_in_grid]]) {
