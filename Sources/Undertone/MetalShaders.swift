@@ -17,7 +17,7 @@ enum MetalFloat: Int, CaseIterable {
 /// Slots in the integer parameter buffer.
 enum MetalInt: Int, CaseIterable {
     case width, height, mode, hasColors, grainCellSize, grainSeed
-    case stopCount, paletteCount
+    case stopCount, paletteCount, organicClassic
     case tileColumns, tileRows, tileSize, latticeCount
 }
 
@@ -110,8 +110,12 @@ enum MetalShaders {
         return float(value >> 8) / 16777216.0f * 2.0f - 1.0f;
     }
 
-    static float3 organicColor(const thread Inputs &in, float x, float y) {
+    static float3 organicColor(const thread Inputs &in, int column, int row, float x, float y) {
         float px = x, py = y;
+        if (in.i[I_organicClassic] != 0) {
+            px += in.xWarp[row];
+            py += in.yWarp[column];
+        }
         float waveHeight = in.f[F_organicWaveHeight];
         if (waveHeight > 0) {
             float waveX = in.f[F_organicWaveX], waveY = in.f[F_organicWaveY];
@@ -245,7 +249,7 @@ enum MetalShaders {
             color = float3(in.f[F_emptyRed], in.f[F_emptyGreen], in.f[F_emptyBlue]);
         } else {
             switch (in.i[I_mode]) {
-            case 0: color = organicColor(in, x, y); break;
+            case 0: color = organicColor(in, column, row, x, y); break;
             case 1: color = meshColor(in, column, row, x, y); break;
             case 3: color = tonalColor(in, column, row, x, y); break;
             case 2: {

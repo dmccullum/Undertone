@@ -106,6 +106,7 @@ final class MetalParityTests: XCTestCase {
             add(mode.title) { $0.mode = mode }
         }
         add("Organic pull") { $0.organicFlow = .pull; $0.flow = 1 }
+        add("Organic classic swirl") { $0.organicFlow = .classic; $0.flow = 0.8; $0.swirl = 0.5 }
         add("Organic wave, soft") { $0.organicFlow = .wave; $0.flow = 1; $0.softness = 0.9 }
         add("Organic crisp swirl") { $0.softness = 0.05; $0.flow = 1; $0.swirl = 0.8; $0.grainSize = 2.4 }
         add("Organic soft, eight colors") {
