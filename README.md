@@ -39,7 +39,7 @@ The window has three parts: the library sidebar on the left, the canvas in the m
 - **Glow** radiates from a draggable center that can sit off the canvas.
 - **Aurora** makes sweeping, seed-driven color ribbons.
 
-Randomize (⌘R) changes the geometry that matters for the current style. Every edit can be undone (⌘Z); a slider drag undoes in one step. Copy Image (⇧⌘C) and Export Image (⌘E) render at full size. Export Recipe and Import Recipe move portable `.undertone.json` files between Macs.
+Randomize (⌘R) changes the geometry that matters for the current style. Every edit can be undone (⌘Z), including changes to colors, collections and gradient names; a slider drag undoes in one step. Opening another gradient clears its canvas edits from the undo history but keeps library changes. Copy Image (⇧⌘C) and Export Image (⌘E) render at full size. Export Recipe and Import Recipe move portable `.undertone.json` files between Macs.
 
 Gradients, collections and colors are stored under `~/Library/Application Support/Undertone/`. Older gradient presets, which saved only colors, move into the Gradients library on first launch.
 

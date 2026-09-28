@@ -197,4 +197,128 @@ final class LibraryTests: XCTestCase {
         undoManager.redo()
         XCTAssertEqual(model.recipe.flow, 0.95)
     }
+
+    /// A model wired to a manual-grouping undo manager, as in the window but one step per `step`.
+    @MainActor private func undoableModel(in folder: URL) -> (StudioModel, UndoManager) {
+        let model = StudioModel(directory: folder)
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false
+        model.undoManager = undoManager
+        return (model, undoManager)
+    }
+
+    private func step(_ undoManager: UndoManager, _ action: () -> Void) {
+        undoManager.beginUndoGrouping()
+        action()
+        undoManager.endUndoGrouping()
+    }
+
+    @MainActor func testUndoRestoresColorEdits() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let libraryID = ColorLibrary.coldwellBankerID
+        func colors() -> [LibraryColor] { model.colorLibraries.first { $0.id == libraryID }?.colors ?? [] }
+        let original = colors()
+
+        step(undoManager) { model.saveColor(name: "Harbor", hex: "2A6F97", libraryID: libraryID) }
+        XCTAssertEqual(undoManager.undoActionName, "Add Color")
+        let added = try XCTUnwrap(colors().last)
+        XCTAssertEqual(added.name, "Harbor")
+
+        step(undoManager) { model.updateLibraryColor(added.id, in: libraryID, name: "Harbor", hex: "1F5673") }
+        XCTAssertEqual(undoManager.undoActionName, "Edit Color")
+        step(undoManager) { model.updateLibraryColor(added.id, in: libraryID, name: "Deep Harbor", hex: "1F5673") }
+        XCTAssertEqual(undoManager.undoActionName, "Rename Color")
+        step(undoManager) { model.deleteLibraryColor(original[0].id, from: libraryID) }
+        XCTAssertEqual(undoManager.undoActionName, "Delete Color")
+        XCTAssertFalse(colors().contains { $0.id == original[0].id })
+
+        undoManager.undo()
+        XCTAssertEqual(colors().first, original[0], "The deleted color returns to its place")
+        undoManager.undo()
+        XCTAssertEqual(colors().last?.name, "Harbor")
+        undoManager.undo()
+        XCTAssertEqual(colors().last?.hex, "2A6F97")
+        undoManager.undo()
+        XCTAssertEqual(colors(), original)
+
+        undoManager.redo()
+        XCTAssertEqual(colors().last?.name, "Harbor")
+        XCTAssertEqual(undoManager.undoActionName, "Add Color")
+        XCTAssertEqual(undoManager.redoActionName, "Edit Color")
+    }
+
+    @MainActor func testUndoRestoresCollections() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let original = model.colorLibraries
+
+        var createdID: UUID?
+        step(undoManager) { createdID = model.createColorLibrary(name: "Coastal") }
+        XCTAssertEqual(undoManager.undoActionName, "New Collection")
+        let id = try XCTUnwrap(createdID)
+        step(undoManager) { model.renameColorLibrary(id: id, to: "Shoreline") }
+        XCTAssertEqual(undoManager.undoActionName, "Rename Collection")
+        let data = try model.encodedColorLibrary(id: id)
+        var importedID: UUID?
+        step(undoManager) { importedID = try? model.importColorLibrary(data: data) }
+        XCTAssertEqual(undoManager.undoActionName, "Import Collection")
+        XCTAssertNotNil(importedID)
+        step(undoManager) { model.deleteColorLibrary(id: ColorLibrary.coldwellBankerID) }
+        XCTAssertEqual(undoManager.undoActionName, "Delete Collection")
+
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first?.id, ColorLibrary.coldwellBankerID)
+        XCTAssertEqual(StudioModel(directory: folder).colorLibraries.first?.id, ColorLibrary.coldwellBankerID, "Undo is saved")
+        undoManager.undo()
+        XCTAssertFalse(model.colorLibraries.contains { $0.id == importedID })
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first { $0.id == id }?.name, "Coastal")
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries, original)
+
+        undoManager.redo()
+        undoManager.redo()
+        XCTAssertEqual(model.colorLibraries.first { $0.id == id }?.name, "Shoreline")
+    }
+
+    @MainActor func testUndoRestoresGradientName() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        model.newGradient()
+        let automatic = model.currentName
+
+        step(undoManager) { model.renameCurrentGradient("Listing Hero") }
+        XCTAssertEqual(undoManager.undoActionName, "Rename Gradient")
+        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
+        step(undoManager) { model.renameGradient(id: tidal.id, to: "Tidal Pool") }
+
+        undoManager.undo()
+        XCTAssertEqual(model.gradients.first { $0.id == tidal.id }?.name, "Tidal")
+        undoManager.undo()
+        XCTAssertEqual(model.currentName, automatic)
+        XCTAssertEqual(model.currentGradient?.hasCustomName, false, "The name follows the colors again")
+        undoManager.redo()
+        XCTAssertEqual(model.currentName, "Listing Hero")
+    }
+
+    @MainActor func testOpeningAnotherGradientKeepsLibraryUndo() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let blue = LibraryColor.coldwellBanker[0]
+
+        step(undoManager) { model.deleteLibraryColor(blue.id, from: ColorLibrary.coldwellBankerID) }
+        step(undoManager) { model.recipe.flow = 0.91 }
+        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
+        model.selectGradient(id: tidal.id)
+
+        XCTAssertEqual(undoManager.undoActionName, "Delete Color", "Recipe steps are dropped, library steps stay")
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first?.colors.first, blue)
+        XCTAssertEqual(model.recipe, tidal.recipe)
+    }
 }
