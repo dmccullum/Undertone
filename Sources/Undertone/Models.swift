@@ -6,12 +6,34 @@ struct ColorStop: Codable, Identifiable, Equatable, Sendable {
     var hex: String
     var x: Double
     var y: Double
+    /// How strongly this point pulls in the point-based styles (Organic, Mesh, Tonal). 1 is neutral.
+    var weight: Double = 1.0
     var color: Color { Hex.color(hex) }
     var nsColor: NSColor { Hex.nsColor(hex) }
+
+    enum CodingKeys: String, CodingKey { case id, hex, x, y, weight }
+
+    init(id: UUID = UUID(), hex: String, x: Double, y: Double, weight: Double = 1.0) {
+        self.id = id
+        self.hex = hex
+        self.x = x
+        self.y = y
+        self.weight = weight
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        hex = try container.decode(String.self, forKey: .hex)
+        x = try container.decode(Double.self, forKey: .x)
+        y = try container.decode(Double.self, forKey: .y)
+        weight = try container.decodeIfPresent(Double.self, forKey: .weight) ?? 1.0
+    }
 }
 
 enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case organic
+    case mesh
     case linear
     case tonal = "magicSingle"
     case radial
@@ -21,6 +43,7 @@ enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .organic: "Organic"
+        case .mesh: "Mesh"
         case .linear: "Linear"
         case .tonal: "Tonal"
         case .radial: "Glow"
@@ -28,33 +51,43 @@ enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Magic Linear merged into Linear, so older files that name it still open.
+    /// Magic Linear merged into Linear; retired styles fall back to Organic so old files still open.
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         if raw == "magicLinear" {
             self = .linear
-        } else if let mode = GradientMode(rawValue: raw) {
-            self = mode
         } else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown gradient mode \(raw)"))
+            self = GradientMode(rawValue: raw) ?? .organic
         }
     }
 }
 
 struct GradientRecipe: Codable, Equatable, Sendable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     var stops: [ColorStop] = [.init(hex: "F3AC91", x: 0.18, y: 0.20), .init(hex: "7655A3", x: 0.78, y: 0.24), .init(hex: "F3CC91", x: 0.34, y: 0.82), .init(hex: "3B526E", x: 0.92, y: 0.85)]
     var mode: GradientMode = .organic
     var flow: Double = 0.55
     var softness: Double = 0.55
+    /// Organic/Tonal: a vortex domain-warp that twirls the mesh. Its center and spin come from `seed`.
+    var swirl: Double = 0
     var angleDegrees: Double = 0
     var gradientPosition: Double = 0.5
     var fadeWidth: Double = 1
+    /// Linear runs the gradient from `start` to `end` (fractions of the canvas). Both points are
+    /// draggable; the angle is whatever line they describe.
+    var startX: Double = 0.0
+    var startY: Double = 0.5
+    var endX: Double = 1.0
+    var endY: Double = 0.5
+    /// Linear only: a rounded, kink-free blend through the colors instead of straight segments.
+    /// On by default — Linear reads best smooth.
+    var smoothBlend: Bool = true
     var easing: Double = 0.55
     var colorArc: Double = 0.35
     var centerX: Double = 0.5
     var centerY: Double = 0.5
+    var textureEnabled: Bool = true
     var grain: Double = 0.20
     var grainSize: Double = 1.0
     var seed: UInt64 = 42
@@ -63,8 +96,9 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var version: Int = GradientRecipe.currentVersion
 
     enum CodingKeys: String, CodingKey {
-        case stops, mode, flow, softness, angleDegrees, gradientPosition, fadeWidth
-        case easing, colorArc, centerX, centerY, grain, grainSize, seed, width, height, version
+        case stops, mode, flow, softness, swirl, angleDegrees, gradientPosition, fadeWidth
+        case startX, startY, endX, endY, smoothBlend
+        case easing, colorArc, centerX, centerY, textureEnabled, grain, grainSize, seed, width, height, version
     }
 
     init(
@@ -72,13 +106,20 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         mode: GradientMode = .organic,
         flow: Double = 0.55,
         softness: Double = 0.55,
+        swirl: Double = 0,
         angleDegrees: Double = 0,
         gradientPosition: Double = 0.5,
         fadeWidth: Double = 1,
+        startX: Double = 0.0,
+        startY: Double = 0.5,
+        endX: Double = 1.0,
+        endY: Double = 0.5,
+        smoothBlend: Bool = true,
         easing: Double = 0.55,
         colorArc: Double = 0.35,
         centerX: Double = 0.5,
         centerY: Double = 0.5,
+        textureEnabled: Bool = true,
         grain: Double = 0.20,
         grainSize: Double = 1,
         seed: UInt64 = 42,
@@ -89,13 +130,20 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         self.mode = mode
         self.flow = flow
         self.softness = softness
+        self.swirl = swirl
         self.angleDegrees = angleDegrees
         self.gradientPosition = gradientPosition
         self.fadeWidth = fadeWidth
+        self.startX = startX
+        self.startY = startY
+        self.endX = endX
+        self.endY = endY
+        self.smoothBlend = smoothBlend
         self.easing = easing
         self.colorArc = colorArc
         self.centerX = centerX
         self.centerY = centerY
+        self.textureEnabled = textureEnabled
         self.grain = grain
         self.grainSize = grainSize
         self.seed = seed
@@ -109,13 +157,16 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         mode = try values.decodeIfPresent(GradientMode.self, forKey: .mode) ?? mode
         flow = try values.decodeIfPresent(Double.self, forKey: .flow) ?? flow
         softness = try values.decodeIfPresent(Double.self, forKey: .softness) ?? softness
+        swirl = try values.decodeIfPresent(Double.self, forKey: .swirl) ?? swirl
         angleDegrees = try values.decodeIfPresent(Double.self, forKey: .angleDegrees) ?? angleDegrees
         gradientPosition = try values.decodeIfPresent(Double.self, forKey: .gradientPosition) ?? gradientPosition
         fadeWidth = try values.decodeIfPresent(Double.self, forKey: .fadeWidth) ?? fadeWidth
+        smoothBlend = try values.decodeIfPresent(Bool.self, forKey: .smoothBlend) ?? smoothBlend
         easing = try values.decodeIfPresent(Double.self, forKey: .easing) ?? easing
         colorArc = try values.decodeIfPresent(Double.self, forKey: .colorArc) ?? colorArc
         centerX = try values.decodeIfPresent(Double.self, forKey: .centerX) ?? centerX
         centerY = try values.decodeIfPresent(Double.self, forKey: .centerY) ?? centerY
+        textureEnabled = try values.decodeIfPresent(Bool.self, forKey: .textureEnabled) ?? textureEnabled
         grain = try values.decodeIfPresent(Double.self, forKey: .grain) ?? grain
         grainSize = try values.decodeIfPresent(Double.self, forKey: .grainSize) ?? grainSize
         seed = try values.decodeIfPresent(UInt64.self, forKey: .seed) ?? seed
@@ -125,6 +176,21 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         // Before version 2, plain Linear had no color arc. Keep those files looking straight.
         if savedVersion < 2, try values.decodeIfPresent(String.self, forKey: .mode) == "linear" {
             colorArc = 0
+        }
+        // Version 3 moved Linear to draggable start/end points. Older files describe the line with
+        // angle + position + fade width, so rebuild the endpoints from those to look identical.
+        if let sx = try values.decodeIfPresent(Double.self, forKey: .startX),
+           let sy = try values.decodeIfPresent(Double.self, forKey: .startY),
+           let ex = try values.decodeIfPresent(Double.self, forKey: .endX),
+           let ey = try values.decodeIfPresent(Double.self, forKey: .endY) {
+            startX = sx; startY = sy; endX = ex; endY = ey
+        } else {
+            let radians = angleDegrees * .pi / 180
+            let axisX = cos(radians), axisY = sin(radians)
+            let near = gradientPosition - 0.5 * fadeWidth - 0.5
+            let far = gradientPosition + 0.5 * fadeWidth - 0.5
+            startX = 0.5 + near * axisX; startY = 0.5 + near * axisY
+            endX = 0.5 + far * axisX; endY = 0.5 + far * axisY
         }
         version = Self.currentVersion
     }
@@ -153,6 +219,11 @@ struct LibraryColor: Codable, Identifiable, Equatable {
     var name: String
     var hex: String
 
+    /// Names are optional; fall back to the hex where a label is needed.
+    var displayName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#\(hex)" : name
+    }
+
     static let coldwellBanker: [LibraryColor] = [
         .init(name: "Coldwell Banker Blue", hex: "012169"),
         .init(name: "Smoky Gray", hex: "58718D"),
@@ -176,7 +247,7 @@ struct ColorLibrary: Codable, Identifiable, Equatable {
         id: coldwellBankerID,
         name: "Coldwell Banker",
         colors: LibraryColor.coldwellBanker,
-        isBuiltIn: true
+        isBuiltIn: false
     )
 
     var id = UUID()

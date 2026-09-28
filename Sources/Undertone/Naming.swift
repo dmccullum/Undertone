@@ -185,6 +185,7 @@ enum NameGenerator {
     private static func suffixes(for mode: GradientMode) -> [String] {
         switch mode {
         case .organic: ["Haze", "Bloom", "Drift", "Cloud"]
+        case .mesh: ["Weave", "Field", "Panel", "Mesh"]
         case .linear: ["Horizon", "Hour", "Fade", "Line"]
         case .tonal: ["Study", "Tones", "Echo", "Shade"]
         case .radial: ["Glow", "Bloom", "Halo", "Flare"]
