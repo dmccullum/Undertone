@@ -13,10 +13,15 @@ struct ContentView: View {
         } detail: {
             HStack(spacing: 0) {
                 StudioCanvas()
+                // The rule and panel run up under the transparent toolbar, like the sidebar, so the
+                // inspector reads as one full-height column.
                 Divider()
+                    .ignoresSafeArea(.container, edges: .top)
                 InspectorView()
                     .frame(width: 300)
-                    .background(.regularMaterial)
+                    .background {
+                        Rectangle().fill(.regularMaterial).ignoresSafeArea(.container, edges: .top)
+                    }
             }
         }
         // The backdrop fills the whole window — including behind the transparent toolbar — so the
