@@ -1,26 +1,31 @@
 import AppKit
 import SwiftUI
 
-final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
-    weak var model: StudioModel?
+@MainActor final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
+    private var observer: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            NSApplication.shared.windows.forEach(configure)
+        observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let window = notification.object as? NSWindow else { return }
+            MainActor.assumeIsolated { UndertoneAppDelegate.style(window) }
+        }
+        Task { @MainActor in
+            NSApplication.shared.windows.forEach { UndertoneAppDelegate.style($0) }
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        model?.flushLastRecipe()
-    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    private func configure(_ window: NSWindow) {
-        // Restrict window resizing without imposing a minimum on the split
-        // view's intermediate layout proposals during sidebar animation.
-        window.contentMinSize = NSSize(width: 1_050, height: 700)
+    private static func style(_ window: NSWindow) {
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
         window.backgroundColor = .windowBackgroundColor
     }
 }
@@ -31,33 +36,55 @@ struct UndertoneApp: App {
     @StateObject private var model = StudioModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("Undertone", id: "studio") {
             ContentView()
                 .environmentObject(model)
-                .onAppear { appDelegate.model = model }
+                .frame(minWidth: 980, minHeight: 660)
         }
-        .defaultSize(width: 1_280, height: 820)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .defaultSize(width: 1_320, height: 860)
+        .windowToolbarStyle(.unified)
         .commands {
-            AboutCommands()
+            SidebarCommands()
+            StudioCommands(model: model)
+        }
+    }
+}
 
-            CommandMenu("Recipe") {
-                Button("Open Recipe…") {
-                    model.openRecipe()
-                }
-                .keyboardShortcut("o", modifiers: [.command])
+struct StudioCommands: Commands {
+    @ObservedObject var model: StudioModel
 
-                Button("Save Recipe…") {
-                    model.saveRecipe()
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Gradient") { model.newGradient() }
+                .keyboardShortcut("n")
+            Button("Duplicate Gradient") { model.duplicateCurrentGradient() }
+                .keyboardShortcut("d")
+            Divider()
+            Button("Import Recipe…") { model.importRecipe() }
+                .keyboardShortcut("o")
+        }
+        CommandGroup(replacing: .saveItem) {
+            Button("Export Image…") { model.exportImage() }
+                .keyboardShortcut("e")
+                .disabled(model.isRendering)
+            Button("Copy Image") { model.copyImage() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(model.isRendering)
+            Button("Export Recipe…") { model.exportRecipe() }
+                .keyboardShortcut("e", modifiers: [.command, .option])
+        }
+        CommandMenu("Gradient") {
+            Button("Randomize") { model.randomize() }
+                .keyboardShortcut("r")
+            Button("Rename…") { model.beginRenaming() }
+            Button("Use Automatic Name") { model.useAutomaticName() }
+            Divider()
+            Menu("Style") {
+                ForEach(Array(GradientMode.allCases.enumerated()), id: \.element) { index, mode in
+                    Button(mode.title) { model.setMode(mode) }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
-                .keyboardShortcut("s", modifiers: [.command])
             }
         }
-
-        Window("About Undertone", id: "about") {
-            AboutView()
-        }
-        .windowResizability(.contentSize)
-        .windowStyle(.hiddenTitleBar)
     }
 }

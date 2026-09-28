@@ -4,14 +4,6 @@ import XCTest
 @testable import Undertone
 
 final class RendererTests: XCTestCase {
-    func testCancelledRenderDoesNotProduceAnImage() {
-        let cancellation = RenderCancellation()
-        cancellation.cancel()
-        XCTAssertThrowsError(try GradientRenderer.render(GradientRecipe(), width: 320, height: 180, cancellation: cancellation)) {
-            XCTAssertTrue($0 is CancellationError)
-        }
-    }
-
     func testRenderHasRequestedDimensionsAndSRGBLayout() throws {
         let image = try GradientRenderer.render(testRecipe(), width: 37, height: 23)
 
@@ -37,28 +29,6 @@ final class RendererTests: XCTestCase {
         let second = try pixels(in: GradientRenderer.render(testRecipe(seed: 11), width: 48, height: 32))
 
         XCTAssertNotEqual(first, second)
-    }
-
-    func testPreviewAndExportUseTheSameGrainPattern() throws {
-        var recipe = testRecipe()
-        recipe.stops = [ColorStop(hex: "284268", x: 0.5, y: 0.5)]
-        recipe.grain = 0.5
-        recipe.grainSize = 1
-        recipe.width = 1800
-        recipe.height = 1200
-
-        let preview = try pixels(in: GradientRenderer.render(recipe, width: 900, height: 600))
-        let exported = try pixels(in: GradientRenderer.render(recipe, width: 1800, height: 1200))
-
-        for y in stride(from: 0, to: 600, by: 47) {
-            for x in stride(from: 0, to: 900, by: 41) {
-                let previewOffset = (y * 900 + x) * 4
-                let exportOffset = ((y * 2) * 1800 + x * 2) * 4
-                XCTAssertEqual(preview[previewOffset], exported[exportOffset])
-                XCTAssertEqual(preview[previewOffset + 1], exported[exportOffset + 1])
-                XCTAssertEqual(preview[previewOffset + 2], exported[exportOffset + 2])
-            }
-        }
     }
 
     func testSeedDoesNotAffectGradientWhenGrainIsDisabled() throws {
@@ -99,7 +69,7 @@ final class RendererTests: XCTestCase {
 
     func testMagicSingleRendersFromOneColorAndRespondsToVariation() throws {
         var recipe = testRecipe()
-        recipe.mode = .magicSingle
+        recipe.mode = .tonal
         recipe.stops = [ColorStop(hex: "2068FF", x: 0.5, y: 0.5)]
         recipe.grain = 0
         recipe.colorArc = 0
@@ -112,7 +82,7 @@ final class RendererTests: XCTestCase {
 
     func testMagicSingleSeedChangesCompositionWithoutGrain() throws {
         var recipe = testRecipe(seed: 10)
-        recipe.mode = .magicSingle
+        recipe.mode = .tonal
         recipe.stops = [ColorStop(hex: "2068FF", x: 0.5, y: 0.5)]
         recipe.grain = 0
         let first = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))

@@ -5,133 +5,421 @@ import UniformTypeIdentifiers
 @MainActor final class StudioModel: ObservableObject {
     private static let canvasWidthPreference = "canvasWidth"
     private static let canvasHeightPreference = "canvasHeight"
-    @Published var recipe = GradientRecipe()
-    @Published var palettes: [BrandPalette] = []
+    private static let currentGradientPreference = "currentGradientID"
+    static let maximumStops = 8
+    /// Longest side of the on-screen preview. The interactive (dragging) and settled sizes match so
+    /// grain — which is per-pixel noise and looks coarser at low resolution — doesn't visibly change
+    /// when the sharp render settles in.
+    private static let settledPreviewSize = 1_280.0
+    private static let interactivePreviewSize = 1_280.0
+
+    @Published var recipe = GradientRecipe() {
+        didSet { recipeDidChange(from: oldValue) }
+    }
+    @Published private(set) var gradients: [SavedGradient] = []
+    /// The gradient currently open on the canvas. Everything in the library is always saved; edits
+    /// to `recipe` are written back to this gradient automatically.
+    @Published private(set) var currentGradientID: UUID?
     @Published var colorLibraries: [ColorLibrary] = [.coldwellBanker]
-    @Published var preview: NSImage?
-    @Published var isRendering = false
-    @Published var status = "Ready"
+    @Published private(set) var preview: NSImage?
+    /// Changes only when the preview should crossfade.
+    @Published private(set) var previewIdentity = 0
+    @Published private(set) var styleThumbnails: [GradientMode: NSImage] = [:]
+    @Published private(set) var isRendering = false
+    @Published private(set) var toast: String?
+    @Published private(set) var renameRequest = 0
+    /// While hovering the color tray, all points are revealed on the canvas.
+    @Published private(set) var pointsRevealed = false
+    /// The specific tray chip being hovered, emphasized among the revealed points.
+    @Published var highlightedStopID: UUID?
     @Published var errorMessage: String?
-    private var previewTask: Task<Void, Never>?
-    private let persistenceQueue = DispatchQueue(label: "studio.undertone.persistence", qos: .utility)
-    private var pendingSave: DispatchWorkItem?
-    private var renderCancellation = RenderCancellation()
-    private var generation = 0
-    private let libraryURL: URL
+
+    weak var undoManager: UndoManager?
+
+    private let gradientsURL: URL
+    private let legacyPalettesURL: URL
     private let colorLibrariesURL: URL
     private let legacyColorsURL: URL
-    private let lastRecipeURL: URL
+    private var idleTask: Task<Void, Never>?
+    private var toastTask: Task<Void, Never>?
+    private var undoBurstTask: Task<Void, Never>?
+    private var revealHideTask: Task<Void, Never>?
+    private var generation = 0
+    private var renderInFlight = false
+    private var renderPending = false
+    private var displayedIsInteractive = false
+    private var isLoadingGradient = false
+    private var isApplyingUndo = false
+    private var undoBurstOpen = false
+    private var animateNextPreview = false
+    private var thumbnailCache: [UUID: (recipe: GradientRecipe, image: NSImage)] = [:]
+    private var terminationObserver: NSObjectProtocol?
 
     init(directory: URL? = nil) {
         let directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Undertone", isDirectory: true)
-        libraryURL = directory.appendingPathComponent("palettes.json")
+        gradientsURL = directory.appendingPathComponent("gradients.json")
+        legacyPalettesURL = directory.appendingPathComponent("palettes.json")
         colorLibrariesURL = directory.appendingPathComponent("color-libraries.json")
         legacyColorsURL = directory.appendingPathComponent("colors.json")
-        lastRecipeURL = directory.appendingPathComponent("last-composition.json")
-        let savedWidth = UserDefaults.standard.integer(forKey: Self.canvasWidthPreference)
-        let savedHeight = UserDefaults.standard.integer(forKey: Self.canvasHeightPreference)
-        if (1...8192).contains(savedWidth), (1...8192).contains(savedHeight) {
-            recipe.width = savedWidth
-            recipe.height = savedHeight
-        }
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: libraryURL.path) {
-                palettes = try JSONDecoder().decode([BrandPalette].self, from: Data(contentsOf: libraryURL))
-            } else {
-                palettes = [.init(name: "Dusk", colors: ["F3AC91", "7655A3", "F3CC91", "3B526E"]), .init(name: "Tidal", colors: ["164E63", "67B8AC", "E8DFC7"]), .init(name: "Ember", colors: ["842D43", "E57E55", "F4D8AB"])]
-            }
-        } catch { errorMessage = "Could not load your palette library: \(error.localizedDescription)" }
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        catch { errorMessage = "Could not open your library folder: \(error.localizedDescription)" }
         loadColorLibraries()
-        loadLastRecipe()
+        loadGradients()
+        restoreCurrentGradient()
+        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveNow() }
+        }
+    }
+
+    /// Opens the last-open gradient (or the first) on launch. The library always has at least one.
+    private func restoreCurrentGradient() {
+        let savedID = UserDefaults.standard.string(forKey: Self.currentGradientPreference).flatMap(UUID.init(uuidString:))
+        let gradient = gradients.first { $0.id == savedID } ?? gradients.first
+        guard let gradient else { return }
+        currentGradientID = gradient.id
+        load(gradient.recipe, animated: false)
+    }
+
+    // MARK: - Gradient library
+
+    var currentGradient: SavedGradient? { gradients.first { $0.id == currentGradientID } }
+    var currentName: String { currentGradient?.name ?? "Untitled" }
+    private var currentIndex: Int? { gradients.firstIndex { $0.id == currentGradientID } }
+
+    private static var defaultCanvasSize: (width: Int, height: Int) {
+        let width = UserDefaults.standard.integer(forKey: canvasWidthPreference)
+        let height = UserDefaults.standard.integer(forKey: canvasHeightPreference)
+        if (128...8192).contains(width), (128...8192).contains(height) { return (width, height) }
+        return (2160, 2880)
+    }
+
+    private func loadGradients() {
+        do {
+            if FileManager.default.fileExists(atPath: gradientsURL.path) {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                gradients = try decoder.decode([SavedGradient].self, from: Data(contentsOf: gradientsURL))
+            } else if FileManager.default.fileExists(atPath: legacyPalettesURL.path) {
+                let palettes = try JSONDecoder().decode([BrandPalette].self, from: Data(contentsOf: legacyPalettesURL))
+                gradients = palettes.map { SavedGradient(name: $0.name, hasCustomName: true, recipe: Self.laidOutRecipe($0.colors)) }
+                try persistGradients()
+                try? FileManager.default.moveItem(at: legacyPalettesURL, to: legacyPalettesURL.deletingLastPathComponent().appendingPathComponent("palettes-migrated.json"))
+            } else {
+                gradients = Self.starterGradients()
+                try persistGradients()
+            }
+        } catch { errorMessage = "Could not load your gradients: \(error.localizedDescription)" }
+        if gradients.isEmpty { gradients = Self.starterGradients() }
+    }
+
+    /// Spreads colors evenly around the canvas, the layout older palettes used.
+    static func laidOutRecipe(_ colors: [String]) -> GradientRecipe {
+        var recipe = GradientRecipe()
+        let size = defaultCanvasSize
+        recipe.width = size.width
+        recipe.height = size.height
+        recipe.stops = colors.enumerated().map { index, hex in
+            let angle = Double(index) / Double(max(colors.count, 1)) * .pi * 2
+            return ColorStop(hex: hex, x: 0.5 + cos(angle) * 0.35, y: 0.5 + sin(angle) * 0.35)
+        }
+        return recipe
+    }
+
+    private static func starterGradients() -> [SavedGradient] {
+        var dusk = GradientRecipe()
+        let size = defaultCanvasSize
+        dusk.width = size.width
+        dusk.height = size.height
+        var tidal = laidOutRecipe(["164E63", "67B8AC", "E8DFC7"])
+        tidal.mode = .linear
+        tidal.colorArc = 0
+        // A gentle diagonal (~115°) from top-right to bottom-left.
+        tidal.startX = 0.711; tidal.startY = 0.047
+        tidal.endX = 0.289; tidal.endY = 0.953
+        var ember = laidOutRecipe(["842D43", "E57E55", "F4D8AB"])
+        ember.mode = .aurora
+        ember.angleDegrees = 70
+        ember.seed = 7
+        return [
+            SavedGradient(name: "Dusk", hasCustomName: true, recipe: dusk),
+            SavedGradient(name: "Tidal", hasCustomName: true, recipe: tidal),
+            SavedGradient(name: "Ember", hasCustomName: true, recipe: ember)
+        ]
+    }
+
+    private func persistGradients() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(gradients).write(to: gradientsURL, options: .atomic)
+    }
+
+    /// Writes the working recipe back into its library gradient. Called before switching, on idle
+    /// autosave, and on quit — the library is the single source of truth.
+    private func commitRecipe() {
+        guard let index = currentIndex, gradients[index].recipe != recipe else { return }
+        gradients[index].recipe = recipe
+        gradients[index].modified = Date()
+    }
+
+    func saveNow(confirm: Bool = false) {
+        commitRecipe()
+        do {
+            try persistGradients()
+            if confirm { flash("Saved") }
+        } catch { errorMessage = "Could not save your gradients: \(error.localizedDescription)" }
+    }
+
+    /// Opens a gradient on the canvas. Everything is always saved, so this just commits the current
+    /// one first and switches.
+    func selectGradient(id: UUID?) {
+        guard let id, id != currentGradientID, let gradient = gradients.first(where: { $0.id == id }) else { return }
+        commitRecipe()
+        currentGradientID = id
+        UserDefaults.standard.set(id.uuidString, forKey: Self.currentGradientPreference)
+        load(gradient.recipe, animated: true)
+        undoManager?.removeAllActions()
+    }
+
+    private func load(_ recipe: GradientRecipe, animated: Bool) {
+        isLoadingGradient = true
+        animateNextPreview = animated
+        if self.recipe == recipe { refreshPreview() } else { self.recipe = recipe }
+        isLoadingGradient = false
+    }
+
+    /// Creates a new, empty gradient in the library and opens it.
+    @discardableResult func newGradient() -> UUID {
+        commitRecipe()
+        var fresh = GradientRecipe()
+        fresh.stops = []
+        let size = Self.defaultCanvasSize
+        fresh.width = size.width
+        fresh.height = size.height
+        fresh.seed = UInt64.random(in: 1...UInt64.max)
+        let seed = Int.random(in: 0...9_999)
+        let gradient = SavedGradient(name: NameGenerator.name(for: fresh, seed: seed), nameSeed: seed, recipe: fresh)
+        gradients.insert(gradient, at: 0)
+        currentGradientID = gradient.id
+        UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
+        load(fresh, animated: true)
+        saveNow()
+        undoManager?.removeAllActions()
+        return gradient.id
+    }
+
+    @discardableResult func duplicateGradient(id: UUID) -> UUID? {
+        commitRecipe()
+        guard let original = gradients.first(where: { $0.id == id }) else { return nil }
+        let copy = SavedGradient(name: numberedName(for: original.name), hasCustomName: true, nameSeed: original.nameSeed &+ 1, recipe: original.recipe)
+        gradients.insert(copy, at: 0)
+        saveNow()
+        selectGradient(id: copy.id)
+        flash("Duplicated \(original.name)")
+        return copy.id
+    }
+
+    @discardableResult func duplicateCurrentGradient() -> UUID? {
+        guard let id = currentGradientID else { return nil }
+        return duplicateGradient(id: id)
+    }
+
+    /// "Dusk" becomes "Dusk 2", and "Dusk 2" becomes "Dusk 3", skipping names already in use.
+    private func numberedName(for name: String) -> String {
+        var base = name
+        if let range = name.range(of: " [0-9]+$", options: .regularExpression) { base = String(name[..<range.lowerBound]) }
+        let existing = Set(gradients.map(\.name))
+        var number = 2
+        while existing.contains("\(base) \(number)") { number += 1 }
+        return "\(base) \(number)"
+    }
+
+    func deleteGradient(id: UUID) {
+        guard let index = gradients.firstIndex(where: { $0.id == id }) else { return }
+        let wasCurrent = id == currentGradientID
+        let removed = gradients[index]
+        gradients.remove(at: index)
+        thumbnailCache[id] = nil
+        if gradients.isEmpty {
+            // The library always holds at least one gradient.
+            var blank = GradientRecipe()
+            blank.stops = []
+            let size = Self.defaultCanvasSize
+            blank.width = size.width
+            blank.height = size.height
+            let seed = Int.random(in: 0...9_999)
+            gradients = [SavedGradient(name: NameGenerator.name(for: blank, seed: seed), nameSeed: seed, recipe: blank)]
+        }
+        if wasCurrent {
+            let next = gradients[min(index, gradients.count - 1)]
+            currentGradientID = next.id
+            UserDefaults.standard.set(next.id.uuidString, forKey: Self.currentGradientPreference)
+            load(next.recipe, animated: true)
+        }
+        saveNow()
+        undoManager?.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { model.restoreDeletedGradient(removed, at: index) }
+        }
+        undoManager?.setActionName("Delete Gradient")
+        flash("Deleted \(removed.name)")
+    }
+
+    private func restoreDeletedGradient(_ gradient: SavedGradient, at index: Int) {
+        commitRecipe()
+        gradients.insert(gradient, at: min(index, gradients.count))
+        currentGradientID = gradient.id
+        UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
+        load(gradient.recipe, animated: true)
+        saveNow()
+    }
+
+    /// Renames a gradient (the current one by default). An empty name hands naming back to the generator.
+    func renameGradient(id: UUID? = nil, to name: String) {
+        guard let id = id ?? currentGradientID, let index = gradients.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            gradients[index].hasCustomName = false
+            let source = id == currentGradientID ? recipe : gradients[index].recipe
+            gradients[index].name = NameGenerator.name(for: source, seed: gradients[index].nameSeed)
+        } else {
+            gradients[index].name = String(trimmed.prefix(60))
+            gradients[index].hasCustomName = true
+        }
+        saveNow()
+    }
+
+    func renameCurrentGradient(_ name: String) { renameGradient(to: name) }
+
+    /// Puts the cursor in the rename field for the current gradient.
+    func beginRenaming() { renameRequest += 1 }
+
+    /// Lets the current gradient's name follow the colors again.
+    func useAutomaticName() { renameCurrentGradient("") }
+
+    /// Rolls a different automatic name from the current colors — used by the rename sheet's shuffle.
+    func shuffleAutomaticName() {
+        guard let index = currentIndex else { return }
+        gradients[index].hasCustomName = false
+        gradients[index].nameSeed = Int.random(in: 0...9_999)
+        gradients[index].name = NameGenerator.name(for: recipe, seed: gradients[index].nameSeed)
+        saveNow()
+    }
+
+    func thumbnail(for gradient: SavedGradient) -> NSImage? {
+        if let cached = thumbnailCache[gradient.id], cached.recipe == gradient.recipe { return cached.image }
+        var small = gradient.recipe
+        small.grain = 0
+        let scale = 120.0 / Double(max(1, max(small.width, small.height)))
+        let width = max(1, Int(Double(small.width) * scale)), height = max(1, Int(Double(small.height) * scale))
+        guard let image = try? GradientRenderer.render(small, width: width, height: height) else { return nil }
+        let result = NSImage(cgImage: image, size: NSSize(width: width, height: height))
+        thumbnailCache[gradient.id] = (gradient.recipe, result)
+        return result
+    }
+
+    // MARK: - Editing, undo and autosave
+
+    private func recipeDidChange(from old: GradientRecipe) {
+        guard recipe != old else { return }
+        if !isLoadingGradient {
+            if !isApplyingUndo { registerUndo(returningTo: old) }
+            if old.stops.map(\.hex) != recipe.stops.map(\.hex) || old.mode != recipe.mode {
+                refreshAutomaticName()
+            }
+        }
         refreshPreview()
     }
 
-    private func loadLastRecipe() {
-        guard FileManager.default.fileExists(atPath: lastRecipeURL.path) else { return }
-        do {
-            let saved = try JSONDecoder().decode(GradientRecipe.self, from: Data(contentsOf: lastRecipeURL))
-            guard (1...8192).contains(saved.width), (1...8192).contains(saved.height),
-                  (0...8).contains(saved.stops.count) else { throw CocoaError(.fileReadCorruptFile) }
-            recipe = saved
-        } catch {
-            errorMessage = "Could not restore the last gradient: \(error.localizedDescription)"
+    /// One undo step per burst of edits, so a slider drag undoes in one go.
+    private func registerUndo(returningTo old: GradientRecipe) {
+        guard let undoManager else { return }
+        if !undoBurstOpen {
+            undoBurstOpen = true
+            undoManager.registerUndo(withTarget: self) { model in
+                MainActor.assumeIsolated { model.restore(old) }
+            }
+            undoManager.setActionName("Gradient Change")
+        }
+        undoBurstTask?.cancel()
+        undoBurstTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            self?.undoBurstOpen = false
         }
     }
 
-    private func persistLastRecipe() {
-        pendingSave?.cancel()
-        let snapshot = recipe
-        let url = lastRecipeURL
-        let work = DispatchWorkItem { [weak self] in
-            do { try JSONEncoder().encode(snapshot).write(to: url, options: .atomic) }
-            catch {
-                let message = error.localizedDescription
-                Task { @MainActor [weak self] in
-                    self?.errorMessage = "Could not remember the current gradient: \(message)"
-                }
-            }
+    private func restore(_ target: GradientRecipe) {
+        let current = recipe
+        undoManager?.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { model.restore(current) }
         }
-        pendingSave = work
-        persistenceQueue.asyncAfter(deadline: .now() + 0.3, execute: work)
+        undoBurstOpen = false
+        isApplyingUndo = true
+        animateNextPreview = true
+        recipe = target
+        isApplyingUndo = false
     }
 
-    func flushLastRecipe() {
-        pendingSave?.cancel()
-        let snapshot = recipe
-        let url = lastRecipeURL
-        do {
-            try persistenceQueue.sync {
-                try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
-            }
-        } catch { errorMessage = "Could not remember the current gradient: \(error.localizedDescription)" }
+    // MARK: - Names
+
+    /// The current gradient's name follows its colors automatically until the user sets a custom name.
+    private func refreshAutomaticName() {
+        guard let index = currentIndex, !gradients[index].hasCustomName else { return }
+        gradients[index].name = NameGenerator.name(for: recipe, seed: gradients[index].nameSeed)
     }
+
+    func libraryName(for hex: String) -> String? {
+        for library in colorLibraries {
+            if let match = library.colors.first(where: { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }) {
+                let trimmed = match.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Color collections
+
+    private static let seededDefaultsPreference = "seededDefaultCollections"
 
     private func loadColorLibraries() {
         do {
             if FileManager.default.fileExists(atPath: colorLibrariesURL.path) {
-                let saved = try JSONDecoder().decode([ColorLibrary].self, from: Data(contentsOf: colorLibrariesURL))
-                if saved.contains(where: { $0.id == ColorLibrary.coldwellBankerID }) {
-                    colorLibraries = saved.map {
-                        ColorLibrary(
-                            id: $0.id,
-                            name: $0.name,
-                            colors: $0.colors,
-                            isBuiltIn: $0.id == ColorLibrary.coldwellBankerID
-                        )
-                    }
-                } else {
-                    // Older files contained custom libraries only.
-                    colorLibraries = [.coldwellBanker] + saved.map {
-                        ColorLibrary(id: $0.id, name: $0.name, colors: $0.colors, isBuiltIn: false)
-                    }
-                }
+                colorLibraries = try JSONDecoder().decode([ColorLibrary].self, from: Data(contentsOf: colorLibrariesURL))
             } else if FileManager.default.fileExists(atPath: legacyColorsURL.path) {
                 let colors = try JSONDecoder().decode([LibraryColor].self, from: Data(contentsOf: legacyColorsURL))
-                if !colors.isEmpty {
-                    colorLibraries.append(.init(name: "My Colors", colors: colors))
-                    try persistColorLibraries()
-                }
+                if !colors.isEmpty { colorLibraries = [.init(name: "My Colors", colors: colors)] }
             }
-        } catch { errorMessage = "Could not load color libraries: \(error.localizedDescription)" }
+        } catch { errorMessage = "Could not load color collections: \(error.localizedDescription)" }
+        seedDefaultCollectionsIfNeeded()
+    }
+
+    /// Coldwell Banker ships as the demo collection, added once. It's an ordinary, editable
+    /// collection from then on, so deleting it sticks and edits persist.
+    private func seedDefaultCollectionsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.seededDefaultsPreference) else { return }
+        if !colorLibraries.contains(where: { $0.id == ColorLibrary.coldwellBankerID }) {
+            colorLibraries.insert(.coldwellBanker, at: 0)
+        }
+        UserDefaults.standard.set(true, forKey: Self.seededDefaultsPreference)
+        try? persistColorLibraries()
     }
 
     private func persistColorLibraries() throws {
         try JSONEncoder().encode(colorLibraries).write(to: colorLibrariesURL, options: .atomic)
     }
 
-    private func persistGradientPresets() throws {
-        try JSONEncoder().encode(palettes).write(to: libraryURL, options: .atomic)
+    private func saveColorLibraries() {
+        do { try persistColorLibraries() } catch { errorMessage = error.localizedDescription }
     }
 
-    @discardableResult func createColorLibrary(name: String) -> UUID? {
+    @discardableResult func createColorLibrary(name: String, colors: [LibraryColor] = []) -> UUID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
-        let library = ColorLibrary(name: name, colors: [])
+        let library = ColorLibrary(name: name, colors: colors)
         colorLibraries.append(library)
         do {
             try persistColorLibraries()
-            status = "Created \(name)"
+            flash("Created \(name)")
             return library.id
         } catch {
             colorLibraries.removeAll { $0.id == library.id }
@@ -140,10 +428,52 @@ import UniformTypeIdentifiers
         }
     }
 
+    /// Saves the gradient's colors as a collection, named after the gradient.
+    @discardableResult func createColorLibraryFromCurrentColors() -> UUID? {
+        guard !recipe.stops.isEmpty else { return nil }
+        var seen: Set<String> = []
+        let colors = recipe.stops.compactMap { stop -> LibraryColor? in
+            guard seen.insert(stop.hex.uppercased()).inserted else { return nil }
+            return LibraryColor(name: libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex), hex: stop.hex.uppercased())
+        }
+        return createColorLibrary(name: currentName, colors: colors)
+    }
+
+    @discardableResult func renameColorLibrary(id: UUID, to name: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let index = colorLibraries.firstIndex(where: { $0.id == id }), !colorLibraries[index].isBuiltIn else { return false }
+        colorLibraries[index].name = name
+        saveColorLibraries()
+        return true
+    }
+
+    func deleteColorLibrary(id: UUID) {
+        guard let library = colorLibraries.first(where: { $0.id == id }), !library.isBuiltIn else { return }
+        colorLibraries.removeAll { $0.id == id }
+        saveColorLibraries()
+        flash("Deleted \(library.name)")
+    }
+
+    func deleteLibraryColor(_ colorID: UUID, from libraryID: UUID) {
+        guard let index = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[index].isBuiltIn else { return }
+        colorLibraries[index].colors.removeAll { $0.id == colorID }
+        saveColorLibraries()
+    }
+
+    @discardableResult func updateLibraryColor(_ colorID: UUID, in libraryID: UUID, name: String, hex: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let hex = Hex.normalized(hex),
+              let libraryIndex = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[libraryIndex].isBuiltIn,
+              let colorIndex = colorLibraries[libraryIndex].colors.firstIndex(where: { $0.id == colorID }) else { return false }
+        colorLibraries[libraryIndex].colors[colorIndex].name = name
+        colorLibraries[libraryIndex].colors[colorIndex].hex = hex
+        saveColorLibraries()
+        return true
+    }
+
     @discardableResult func saveColor(name: String, hex: String, libraryID: UUID? = nil) -> UUID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hex = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "").uppercased()
-        guard !name.isEmpty, hex.range(of: "^[0-9A-F]{6}$", options: .regularExpression) != nil else { return nil }
+        guard let hex = Hex.normalized(hex) else { return nil }
         var target = colorLibraries.firstIndex { $0.id == libraryID && !$0.isBuiltIn }
         if target == nil {
             target = colorLibraries.firstIndex { $0.name == "My Colors" && !$0.isBuiltIn }
@@ -153,10 +483,11 @@ import UniformTypeIdentifiers
             target = colorLibraries.indices.last
         }
         guard let target else { return nil }
-        colorLibraries[target].colors.append(.init(name: name, hex: hex))
+        let color = LibraryColor(name: name, hex: hex)
+        colorLibraries[target].colors.append(color)
         do {
             try persistColorLibraries()
-            status = "Saved \(name) to \(colorLibraries[target].name)"
+            flash("Saved \(color.displayName) to \(colorLibraries[target].name)")
             return colorLibraries[target].id
         } catch {
             colorLibraries[target].colors.removeLast()
@@ -183,17 +514,15 @@ import UniformTypeIdentifiers
             throw CocoaError(.fileReadCorruptFile)
         }
         let name = decoded.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, decoded.colors.allSatisfy({
-            !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            $0.hex.range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil
-        }) else { throw CocoaError(.fileReadCorruptFile) }
+        guard !name.isEmpty, decoded.colors.allSatisfy({ Hex.normalized($0.hex) != nil })
+        else { throw CocoaError(.fileReadCorruptFile) }
         let imported = ColorLibrary(name: name, colors: decoded.colors.map {
             LibraryColor(name: $0.name, hex: $0.hex.uppercased())
         })
         colorLibraries.append(imported)
         do { try persistColorLibraries() }
         catch { colorLibraries.removeAll { $0.id == imported.id }; throw error }
-        status = "Imported \(imported.name)"
+        flash("Imported \(imported.name)")
         return imported.id
     }
 
@@ -201,190 +530,112 @@ import UniformTypeIdentifiers
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         do { return try importColorLibrary(data: Data(contentsOf: url)) }
-        catch { errorMessage = "Could not import color library: \(error.localizedDescription)"; return nil }
+        catch { errorMessage = "Could not import that collection: \(error.localizedDescription)"; return nil }
     }
 
     func exportColorLibrary(id: UUID) {
         guard let library = colorLibraries.first(where: { $0.id == id }) else { return }
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = library.name.replacingOccurrences(of: "/", with: "-") + ".undertone-colors.json"
+        panel.nameFieldStringValue = Self.fileSafe(library.name) + ".undertone-colors.json"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); status = "Exported \(library.name)" }
-        catch { errorMessage = "Could not export color library: \(error.localizedDescription)" }
+        do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); flash("Exported \(library.name)") }
+        catch { errorMessage = "Could not export that collection: \(error.localizedDescription)" }
     }
 
-    func removeColorLibrary(id: UUID) {
-        guard let index = colorLibraries.firstIndex(where: { $0.id == id && !$0.isBuiltIn }) else { return }
-        let removed = colorLibraries.remove(at: index)
-        do { try persistColorLibraries(); status = "Removed \(removed.name)" }
-        catch {
-            colorLibraries.insert(removed, at: index)
-            errorMessage = "Could not remove palette: \(error.localizedDescription)"
-        }
+    // MARK: - Color stops
+
+    /// How many times a color appears in the gradient. Tonal counts only its base color.
+    func count(of hex: String) -> Int {
+        let stops = recipe.mode == .tonal ? Array(recipe.stops.prefix(1)) : recipe.stops
+        return stops.filter { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }.count
     }
 
-    func removeLibraryColor(id: UUID, from libraryID: UUID) {
-        guard let libraryIndex = colorLibraries.firstIndex(where: { $0.id == libraryID }),
-              let colorIndex = colorLibraries[libraryIndex].colors.firstIndex(where: { $0.id == id }) else { return }
-        let removed = colorLibraries[libraryIndex].colors.remove(at: colorIndex)
-        do { try persistColorLibraries(); status = "Removed \(removed.name)" }
-        catch {
-            colorLibraries[libraryIndex].colors.insert(removed, at: colorIndex)
-            errorMessage = "Could not remove palette color: \(error.localizedDescription)"
-        }
-    }
+    func containsColor(hex: String) -> Bool { count(of: hex) > 0 }
 
-    func removeGradientPreset(id: UUID) {
-        guard let index = palettes.firstIndex(where: { $0.id == id }) else { return }
-        let removed = palettes.remove(at: index)
-        do { try persistGradientPresets(); status = "Removed \(removed.name)" }
-        catch {
-            palettes.insert(removed, at: index)
-            errorMessage = "Could not remove gradient preset: \(error.localizedDescription)"
-        }
-    }
+    var canAddStop: Bool { recipe.mode == .tonal ? recipe.stops.isEmpty : recipe.stops.count < Self.maximumStops }
 
-    func importGradientPresetsFromPanel() {
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            let decoded: [BrandPalette]
-            if let collection = try? decoder.decode([BrandPalette].self, from: data) {
-                decoded = collection
-            } else if let single = try? decoder.decode(BrandPalette.self, from: data) {
-                decoded = [single]
-            } else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
-            guard !decoded.isEmpty, decoded.allSatisfy({ preset in
-                !preset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                (1...8).contains(preset.colors.count) &&
-                preset.colors.allSatisfy { $0.range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil }
-            }) else { throw CocoaError(.fileReadCorruptFile) }
-            let imported = decoded.map { preset in
-                BrandPalette(name: preset.name, colors: preset.colors.map { $0.uppercased() })
-            }
-            palettes.append(contentsOf: imported)
-            do { try persistGradientPresets() }
-            catch {
-                let importedIDs = Set(imported.map(\.id))
-                palettes.removeAll { importedIDs.contains($0.id) }
-                throw error
-            }
-            status = "Imported \(decoded.count) gradient preset\(decoded.count == 1 ? "" : "s")"
-        } catch {
-            errorMessage = "Could not import gradient presets: \(error.localizedDescription)"
-        }
-    }
-
-    func exportGradientPresets() {
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "Undertone Gradient Presets.undertone-gradients.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(palettes).write(to: url, options: .atomic)
-            status = "Exported gradient presets"
-        } catch {
-            errorMessage = "Could not export gradient presets: \(error.localizedDescription)"
-        }
-    }
-
-    func containsColor(hex: String) -> Bool {
-        if recipe.mode == .magicSingle {
-            return recipe.stops.first?.hex.caseInsensitiveCompare(hex) == .orderedSame
-        }
-        return recipe.stops.contains { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }
-    }
-
-    /// Adds a fresh stop every time a library swatch is clicked. Reusing a color is
-    /// intentional: repeating a tone is a useful way to shape a gradient.
+    /// Library clicks always add; the same color can appear more than once.
     func addLibraryColor(_ color: LibraryColor) {
-        if recipe.mode == .magicSingle {
+        if recipe.mode == .tonal {
             setBaseColor(hex: color.hex)
-            status = "Using \(color.name) as the base color"
             return
         }
-        guard recipe.stops.count < 8 else {
-            status = "A gradient can use up to eight colors"
+        guard recipe.stops.count < Self.maximumStops else {
+            flash("A gradient can use up to eight colors")
             return
         }
         let positions: [(Double, Double)] = [(0.18, 0.18), (0.82, 0.20), (0.22, 0.80), (0.78, 0.82), (0.50, 0.15), (0.50, 0.85), (0.15, 0.50), (0.85, 0.50)]
         let position = positions[recipe.stops.count]
         recipe.stops.append(.init(hex: color.hex, x: position.0, y: position.1))
-        status = "Added \(color.name)"
     }
 
-    // Retained for older callers and tests; the library UI intentionally uses
-    // addLibraryColor so selecting a swatch never removes an existing stop.
-    func toggleLibraryColor(_ color: LibraryColor) { addLibraryColor(color) }
+    func setBaseColor(hex: String) {
+        if recipe.stops.isEmpty { recipe.stops = [.init(hex: hex, x: 0.5, y: 0.5)] }
+        else { recipe.stops[0].hex = hex }
+    }
 
-    func refreshPreview() {
-        UserDefaults.standard.set(recipe.width, forKey: Self.canvasWidthPreference)
-        UserDefaults.standard.set(recipe.height, forKey: Self.canvasHeightPreference)
-        persistLastRecipe()
-        generation += 1
-        let token = generation
-        previewTask?.cancel()
-        renderCancellation.cancel()
-        let cancellation = RenderCancellation()
-        renderCancellation = cancellation
-        let snapshot = recipe
-        previewTask = Task {
-            try? await Task.sleep(nanoseconds: 90_000_000)
-            guard !Task.isCancelled else { return }
-            let scale = Double(GradientRenderer.grainReferenceMaximumDimension) / Double(max(1, max(snapshot.width, snapshot.height)))
-            let width = max(1, Int(Double(snapshot.width) * scale))
-            let height = max(1, Int(Double(snapshot.height) * scale))
-            do {
-                let image = try await Task.detached(priority: .userInitiated) {
-                    try GradientRenderer.render(snapshot, width: width, height: height, cancellation: cancellation)
-                }.value
-                guard token == self.generation, !Task.isCancelled else { return }
-                self.preview = NSImage(cgImage: image, size: NSSize(width: width, height: height))
-            } catch is CancellationError {
-                // Superseded previews are expected while dragging controls.
-            } catch { if token == self.generation { self.errorMessage = error.localizedDescription } }
+    func addColor(hex: String) {
+        if recipe.mode == .tonal { setBaseColor(hex: hex) }
+        else if recipe.stops.count < Self.maximumStops {
+            recipe.stops.append(.init(hex: hex, x: Double.random(in: 0.1...0.9), y: Double.random(in: 0.1...0.9)))
         }
     }
 
-    func randomize() {
-        recipe.seed = UInt64.random(in: 1...UInt64.max)
-        switch recipe.mode {
-        case .organic:
-            for index in recipe.stops.indices {
-                recipe.stops[index].x = Double.random(in: 0.05...0.95)
-                recipe.stops[index].y = Double.random(in: 0.05...0.95)
+    func duplicateColor(id: UUID) {
+        guard recipe.mode != .tonal, recipe.stops.count < Self.maximumStops,
+              let index = recipe.stops.firstIndex(where: { $0.id == id }) else { return }
+        let source = recipe.stops[index]
+        let copy = ColorStop(hex: source.hex, x: min(max(source.x + 0.08, 0), 1), y: min(max(source.y + 0.06, 0), 1))
+        recipe.stops.insert(copy, at: index + 1)
+    }
+
+    func setColor(hex: String, for id: UUID) {
+        guard let hex = Hex.normalized(hex), let index = recipe.stops.firstIndex(where: { $0.id == id }) else { return }
+        recipe.stops[index].hex = hex
+    }
+
+    /// How strongly a color point pulls in the point-based styles (Organic, Mesh).
+    func setWeight(_ weight: Double, for id: UUID) {
+        guard let index = recipe.stops.firstIndex(where: { $0.id == id }) else { return }
+        recipe.stops[index].weight = min(4, max(0.1, weight))
+    }
+
+    /// Whether the current style uses per-point strength (i.e. blends positioned points spatially).
+    var usesPointStrength: Bool { recipe.mode == .organic || recipe.mode == .mesh }
+
+    /// Reveals all canvas points while the tray is hovered, with a short grace period on exit so the
+    /// points don't flicker when the pointer moves up to the canvas to grab one.
+    func setTrayHovering(_ hovering: Bool) {
+        revealHideTask?.cancel()
+        if hovering {
+            pointsRevealed = true
+        } else {
+            revealHideTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                guard !Task.isCancelled else { return }
+                self?.pointsRevealed = false
+                self?.highlightedStopID = nil
             }
-        case .magicSingle:
-            recipe.flow = Double.random(in: 0.25...0.95)
-            recipe.softness = Double.random(in: 0.2...0.9)
-            recipe.colorArc = Double.random(in: 0.2...0.95)
-        case .linear, .softLinear, .magicLinear, .aurora:
-            recipe.angleDegrees = Double.random(in: 0...360)
-            recipe.gradientPosition = Double.random(in: 0.35...0.65)
-        case .radial:
-            recipe.centerX = Double.random(in: -0.25...1.25)
-            recipe.centerY = Double.random(in: -0.25...1.25)
         }
     }
-    func savePalette(name: String) {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        palettes.append(.init(name: name, colors: recipe.stops.map(\.hex)))
-        do { try persistGradientPresets(); status = "Gradient preset saved" }
-        catch { errorMessage = error.localizedDescription }
+
+    func removeColor(id: UUID) { recipe.stops.removeAll { $0.id == id } }
+
+    func removeAllColors() { recipe.stops.removeAll() }
+
+    /// Moves a color to a new slot; order drives Linear, Glow and Aurora.
+    func moveColor(id: UUID, toIndex target: Int) {
+        guard let from = recipe.stops.firstIndex(where: { $0.id == id }), recipe.stops.indices.contains(target), from != target else { return }
+        var stops = recipe.stops
+        let moving = stops.remove(at: from)
+        stops.insert(moving, at: target)
+        recipe.stops = stops
     }
-    func applyPalette(_ palette: BrandPalette) {
-        recipe.stops = palette.colors.enumerated().map { index, hex in
-            let angle = Double(index) / Double(palette.colors.count) * .pi * 2
-            return ColorStop(hex: hex, x: 0.5 + cos(angle) * 0.35, y: 0.5 + sin(angle) * 0.35)
-        }
-    }
+
     func suggestedColors() -> [String] {
-        guard let color = recipe.stops.first?.nsColor.usingColorSpace(.sRGB) else { return [] }
+        guard let color = recipe.stops.first?.nsColor.usingColorSpace(.sRGB) else {
+            return ["F3AC91", "7655A3", "67B8AC", "E57E55"]
+        }
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         return [-0.055, -0.025, 0.025, 0.055].enumerated().map { index, offset in
@@ -392,69 +643,250 @@ import UniformTypeIdentifiers
             return String(format: "%02X%02X%02X", Int(tone.redComponent * 255), Int(tone.greenComponent * 255), Int(tone.blueComponent * 255))
         }
     }
-    func setBaseColor(hex: String) {
-        if recipe.stops.isEmpty { recipe.stops = [.init(hex: hex, x: 0.5, y: 0.5)] }
-        else { recipe.stops[0].hex = hex }
+
+    // MARK: - Style and canvas
+
+    func setMode(_ mode: GradientMode) {
+        guard mode != recipe.mode else { return }
+        animateNextPreview = true
+        var updated = recipe
+        updated.mode = mode
+        // Linear reads best as a smooth blend with no color arc; both stay adjustable from there.
+        if mode == .linear {
+            updated.colorArc = 0
+            updated.smoothBlend = true
+        }
+        recipe = updated
     }
-    func addColor(hex: String) {
-        if recipe.mode == .magicSingle { setBaseColor(hex: hex) }
-        else if recipe.stops.count < 8 { recipe.stops.append(.init(hex: hex, x: Double.random(in: 0.1...0.9), y: Double.random(in: 0.1...0.9))) }
+
+    /// Resets the current style's shape settings to defaults, keeping colors, canvas size and texture.
+    func resetStyle() {
+        let defaults = GradientRecipe()
+        var updated = recipe
+        updated.flow = defaults.flow
+        updated.softness = defaults.softness
+        updated.swirl = defaults.swirl
+        updated.angleDegrees = defaults.angleDegrees
+        updated.gradientPosition = defaults.gradientPosition
+        updated.fadeWidth = defaults.fadeWidth
+        updated.startX = defaults.startX; updated.startY = defaults.startY
+        updated.endX = defaults.endX; updated.endY = defaults.endY
+        updated.smoothBlend = updated.mode == .linear ? true : defaults.smoothBlend
+        updated.easing = defaults.easing
+        updated.colorArc = updated.mode == .linear ? 0 : defaults.colorArc
+        updated.centerX = defaults.centerX; updated.centerY = defaults.centerY
+        updated.seed = defaults.seed
+        animateNextPreview = true
+        recipe = updated
     }
-    func removeColor(id: UUID) { recipe.stops.removeAll { $0.id == id } }
-    func duplicateColor(id: UUID) {
-        guard recipe.mode != .magicSingle,
-              recipe.stops.count < 8,
-              let index = recipe.stops.firstIndex(where: { $0.id == id }) else { return }
-        var copy = recipe.stops[index]
-        copy.id = UUID()
-        copy.x = min(1, copy.x + 0.04)
-        copy.y = min(1, copy.y + 0.04)
-        recipe.stops.insert(copy, at: index + 1)
+
+    /// Resets the grain texture to defaults and turns it back on.
+    func resetTexture() {
+        let defaults = GradientRecipe()
+        var updated = recipe
+        updated.textureEnabled = true
+        updated.grain = defaults.grain
+        updated.grainSize = defaults.grainSize
+        recipe = updated
     }
-    func moveColor(from source: Int, to destination: Int) {
-        guard recipe.stops.indices.contains(source) else { return }
-        let stop = recipe.stops.remove(at: source)
-        recipe.stops.insert(stop, at: min(max(0, destination), recipe.stops.count))
+
+    /// Reshapes the Organic blend's flow field without moving any color, by re-rolling the seed.
+    func shuffleMesh() {
+        recipe.seed = UInt64.random(in: 1...UInt64.max)
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
-    func resetGradientSettings() {
-        recipe.flow = 0.55; recipe.softness = 0.55; recipe.angleDegrees = 0
-        recipe.gradientPosition = 0.5; recipe.fadeWidth = 1; recipe.easing = 0.55
-        recipe.colorArc = recipe.mode == .aurora ? 0 : 0.35
-        recipe.centerX = 0.5; recipe.centerY = 0.5
-        setLinearPreset(angle: 0)
+
+    /// The Linear line's current angle in degrees (0–360), derived from its endpoints.
+    var linearAngle: Double {
+        let degrees = atan2(recipe.endY - recipe.startY, recipe.endX - recipe.startX) * 180 / .pi
+        return degrees < 0 ? degrees + 360 : degrees
     }
-    func resetTextureSettings() { recipe.isTextureEnabled = true; recipe.grain = 0.18; recipe.grainSize = 1 }
-    func setLinearPreset(angle: Double) {
-        let radians = angle * .pi / 180
-        let dx = cos(radians), dy = sin(radians)
-        let extent = 0.5 / max(abs(dx), abs(dy), 0.0001)
-        recipe.linearStartX = 0.5 - dx * extent; recipe.linearStartY = 0.5 - dy * extent
-        recipe.linearEndX = 0.5 + dx * extent; recipe.linearEndY = 0.5 + dy * extent
-        recipe.angleDegrees = angle
-        recipe.gradientPosition = 0.5
+
+    /// Rotates the Linear line to a preset angle, keeping its center and length.
+    func setLinearAngle(_ degrees: Double) {
+        let radians = degrees * .pi / 180
+        let axisX = cos(radians), axisY = sin(radians)
+        let midX = (recipe.startX + recipe.endX) / 2, midY = (recipe.startY + recipe.endY) / 2
+        let dx = recipe.endX - recipe.startX, dy = recipe.endY - recipe.startY
+        let half = max(0.08, sqrt(dx * dx + dy * dy) / 2)
+        func clamp01(_ v: Double) -> Double { min(1, max(0, v)) }
+        var updated = recipe
+        updated.startX = clamp01(midX - axisX * half)
+        updated.startY = clamp01(midY - axisY * half)
+        updated.endX = clamp01(midX + axisX * half)
+        updated.endY = clamp01(midY + axisY * half)
+        recipe = updated
     }
-    func removeAllColors() {
-        recipe.stops.removeAll()
-        status = "Removed all colors"
+
+    func setCanvasSize(width: Int, height: Int) {
+        guard (128...8192).contains(width), (128...8192).contains(height), width * height <= 33_554_432 else { return }
+        UserDefaults.standard.set(width, forKey: Self.canvasWidthPreference)
+        UserDefaults.standard.set(height, forKey: Self.canvasHeightPreference)
+        animateNextPreview = true
+        recipe.width = width
+        recipe.height = height
+    }
+
+    func randomize() {
+        animateNextPreview = true
+        recipe = Self.randomized(recipe)
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+    }
+
+    static func randomized(_ source: GradientRecipe) -> GradientRecipe {
+        var recipe = source
+        recipe.seed = UInt64.random(in: 1...UInt64.max)
+        switch recipe.mode {
+        case .organic, .mesh:
+            for index in recipe.stops.indices {
+                recipe.stops[index].x = Double.random(in: 0.05...0.95)
+                recipe.stops[index].y = Double.random(in: 0.05...0.95)
+            }
+            recipe.swirl = Bool.random() ? Double.random(in: 0.2...0.8) : 0
+        case .tonal:
+            recipe.flow = Double.random(in: 0.25...0.95)
+            recipe.softness = Double.random(in: 0.2...0.9)
+            recipe.colorArc = Double.random(in: 0.2...0.95)
+            recipe.swirl = Bool.random() ? Double.random(in: 0.2...0.8) : 0
+        case .linear:
+            let radians = Double.random(in: 0...360) * .pi / 180
+            let axisX = cos(radians), axisY = sin(radians)
+            let half = Double.random(in: 0.35...0.6)
+            let midX = Double.random(in: 0.4...0.6), midY = Double.random(in: 0.4...0.6)
+            func clamp01(_ v: Double) -> Double { min(1, max(0, v)) }
+            recipe.startX = clamp01(midX - axisX * half)
+            recipe.startY = clamp01(midY - axisY * half)
+            recipe.endX = clamp01(midX + axisX * half)
+            recipe.endY = clamp01(midY + axisY * half)
+        case .aurora:
+            recipe.angleDegrees = Double.random(in: 0...360)
+            recipe.gradientPosition = Double.random(in: 0.35...0.65)
+        case .radial:
+            recipe.centerX = Double.random(in: -0.25...1.25)
+            recipe.centerY = Double.random(in: -0.25...1.25)
+        }
+        return recipe
+    }
+
+    // MARK: - Rendering
+
+    /// Renders are serial: while one runs, newer edits wait and the latest one renders next,
+    /// so a drag keeps updating instead of discarding every frame. Every edit renders the small,
+    /// fast preview first for instant feedback; the full-size version sharpens in once edits settle.
+    func refreshPreview() {
+        generation += 1
+        renderPreview(interactive: true)
+        scheduleIdleWork()
+    }
+
+    private func renderPreview(interactive: Bool) {
+        guard !renderInFlight else {
+            renderPending = true
+            return
+        }
+        renderInFlight = true
+        let snapshot = recipe
+        let animated = animateNextPreview
+        animateNextPreview = false
+        let longSide = interactive ? Self.interactivePreviewSize : Self.settledPreviewSize
+        let scale = min(1, longSide / Double(max(1, max(snapshot.width, snapshot.height))))
+        let width = max(1, Int(Double(snapshot.width) * scale))
+        let height = max(1, Int(Double(snapshot.height) * scale))
+        Task {
+            let result: Result<CGImage, Error> = await Task.detached(priority: .userInitiated) {
+                Result { try GradientRenderer.render(snapshot, width: width, height: height) }
+            }.value
+            self.renderInFlight = false
+            switch result {
+            case .success(let image):
+                let rendered = NSImage(cgImage: image, size: NSSize(width: width, height: height))
+                self.displayedIsInteractive = interactive
+                if animated {
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        self.preview = rendered
+                        self.previewIdentity += 1
+                    }
+                } else {
+                    self.preview = rendered
+                }
+            case .failure(let error):
+                self.errorMessage = error.localizedDescription
+            }
+            if self.renderPending {
+                self.renderPending = false
+                self.renderPreview(interactive: true)
+            }
+        }
+    }
+
+    /// When edits pause: save, sharpen a small preview and refresh the extras that follow the artwork.
+    private func scheduleIdleWork() {
+        idleTask?.cancel()
+        idleTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if !self.isLoadingGradient { self.saveNow() }
+            if self.displayedIsInteractive, !self.renderInFlight { self.renderPreview(interactive: false) }
+            let snapshot = self.recipe
+            let styles = await Task.detached(priority: .utility) { Self.renderStyleThumbnails(for: snapshot) }.value
+            guard !Task.isCancelled else { return }
+            self.styleThumbnails = styles.mapValues { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+        }
+    }
+
+    nonisolated private static func renderStyleThumbnails(for recipe: GradientRecipe) -> [GradientMode: CGImage] {
+        var styles: [GradientMode: CGImage] = [:]
+        for mode in GradientMode.allCases {
+            var variant = recipe
+            variant.mode = mode
+            variant.grain = 0
+            if let image = try? GradientRenderer.render(variant, width: 120, height: 90) { styles[mode] = image }
+        }
+        return styles
+    }
+
+    // MARK: - Messages
+
+    func flash(_ message: String) {
+        toastTask?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { toast = message }
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { self?.toast = nil }
+        }
+    }
+
+    // MARK: - Export
+
+    static func fileSafe(_ name: String) -> String {
+        let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Undertone" : cleaned
+    }
+
+    func exportFileName(extension ext: String) -> String {
+        "\(Self.fileSafe(currentName)) \(recipe.width)x\(recipe.height).\(ext)"
     }
 
     private func renderExport(completion: @escaping (CGImage, GradientRecipe) throws -> Void) {
         guard !isRendering else { return }
-        isRendering = true; status = "Rendering full resolution…"
+        isRendering = true
         let snapshot = recipe
         Task {
             defer { isRendering = false }
             do {
                 let image = try await Task.detached(priority: .userInitiated) { try GradientRenderer.render(snapshot, width: snapshot.width, height: snapshot.height) }.value
                 try completion(image, snapshot)
-            } catch { status = "Export failed"; errorMessage = error.localizedDescription }
+            } catch { errorMessage = "Export failed: \(error.localizedDescription)" }
         }
     }
-    static func encoded(_ image: CGImage, jpeg: Bool = false) throws -> Data {
+
+    nonisolated static func encoded(_ image: CGImage, jpeg: Bool = false) throws -> Data {
         let bitmap = NSBitmapImageRep(cgImage: image)
         guard let data = bitmap.representation(using: jpeg ? .jpeg : .png, properties: jpeg ? [.compressionFactor: 0.95] : [:]) else { throw CocoaError(.fileWriteUnknown) }
         return data
     }
+
     func copyImage() {
         renderExport { image, _ in
             let item = NSPasteboardItem()
@@ -462,44 +894,106 @@ import UniformTypeIdentifiers
             if let tiff = NSBitmapImageRep(cgImage: image).tiffRepresentation { item.setData(tiff, forType: .tiff) }
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.writeObjects([item]) else { throw CocoaError(.fileWriteUnknown) }
-            self.status = "Full-resolution image copied"
+            self.flash("Copied \(self.recipe.width) × \(self.recipe.height) image")
         }
     }
+
+    /// Synchronous PNG for Edit > Copy while the canvas has focus.
+    func copyItemProvider() -> NSItemProvider? {
+        guard let image = try? GradientRenderer.render(recipe, width: recipe.width, height: recipe.height),
+              let data = try? Self.encoded(image) else { return nil }
+        flash("Copied \(recipe.width) × \(recipe.height) image")
+        return NSItemProvider(item: data as NSData, typeIdentifier: UTType.png.identifier)
+    }
+
+    /// Renders the full-size PNG only when the drop target asks for it.
+    func dragItemProvider() -> NSItemProvider {
+        let snapshot = recipe
+        let fileName = exportFileName(extension: "png")
+        let provider = NSItemProvider()
+        provider.suggestedName = fileName
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let image = try GradientRenderer.render(snapshot, width: snapshot.width, height: snapshot.height)
+                    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    let url = folder.appendingPathComponent(fileName)
+                    try StudioModel.encoded(image).write(to: url, options: .atomic)
+                    completion(url, false, nil)
+                } catch {
+                    completion(nil, false, error)
+                }
+            }
+            return nil
+        }
+        return provider
+    }
+
     func exportImage() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg]; panel.nameFieldStringValue = "Undertone.png"
+        panel.allowedContentTypes = [.png, .jpeg]
+        panel.nameFieldStringValue = exportFileName(extension: "png")
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         renderExport { image, _ in
             try Self.encoded(image, jpeg: ["jpg", "jpeg"].contains(url.pathExtension.lowercased())).write(to: url, options: .atomic)
-            self.status = "Saved \(url.lastPathComponent)"
+            self.flash("Saved \(url.lastPathComponent)")
         }
     }
-    func saveRecipe() {
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "Untitled.undertone.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; try encoder.encode(recipe).write(to: url, options: .atomic); status = "Composition saved" }
-        catch { errorMessage = error.localizedDescription }
+
+    func exportRecipe() { exportRecipe(currentName, recipe) }
+
+    /// Exports a specific saved gradient's recipe.
+    func exportRecipe(id: UUID) {
+        guard let gradient = gradients.first(where: { $0.id == id }) else { return }
+        exportRecipe(gradient.name, gradient.recipe)
     }
-    func openRecipe() {
+
+    private func exportRecipe(_ name: String, _ recipe: GradientRecipe) {
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = Self.fileSafe(name) + ".undertone.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(recipe).write(to: url, options: .atomic)
+            flash("Exported \(url.lastPathComponent)")
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func importRecipe() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            let candidate = try JSONDecoder().decode(GradientRecipe.self, from: Data(contentsOf: url))
-            let validStopCount = (0...8).contains(candidate.stops.count)
-            let unitValues = [candidate.flow, candidate.softness, candidate.grain, candidate.gradientPosition, candidate.easing, candidate.colorArc]
-            guard validStopCount,
-                  (1...8192).contains(candidate.width), (1...8192).contains(candidate.height),
-                  unitValues.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
-                  candidate.angleDegrees.isFinite,
-                  [candidate.linearStartX, candidate.linearStartY, candidate.linearEndX, candidate.linearEndY].allSatisfy({ $0.isFinite && (-1...2).contains($0) }),
-                  candidate.centerX.isFinite, candidate.centerY.isFinite,
-                  (-1...2).contains(candidate.centerX), (-1...2).contains(candidate.centerY),
-                  candidate.fadeWidth.isFinite, (0.05...2).contains(candidate.fadeWidth),
-                  candidate.grainSize.isFinite, (0.25...10).contains(candidate.grainSize),
-                  candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && $0.hex.range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil })
-            else { throw CocoaError(.fileReadCorruptFile) }
-            recipe = candidate; status = "Composition opened"
-        } catch { errorMessage = "Could not open composition: \(error.localizedDescription)" }
+            let recipe = try Self.validatedRecipe(from: Data(contentsOf: url))
+            var name = url.lastPathComponent
+            for suffix in [".json", ".undertone"] where name.lowercased().hasSuffix(suffix) { name = String(name.dropLast(suffix.count)) }
+            commitRecipe()
+            let seed = Int.random(in: 0...9_999)
+            let gradient = SavedGradient(name: name.isEmpty ? NameGenerator.name(for: recipe, seed: seed) : name, hasCustomName: !name.isEmpty, nameSeed: seed, recipe: recipe)
+            gradients.insert(gradient, at: 0)
+            currentGradientID = gradient.id
+            UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
+            load(recipe, animated: true)
+            saveNow()
+            undoManager?.removeAllActions()
+        } catch { errorMessage = "Could not open that recipe: \(error.localizedDescription)" }
+    }
+
+    static func validatedRecipe(from data: Data) throws -> GradientRecipe {
+        let candidate = try JSONDecoder().decode(GradientRecipe.self, from: data)
+        let unitValues = [candidate.flow, candidate.softness, candidate.swirl, candidate.grain, candidate.gradientPosition, candidate.easing, candidate.colorArc]
+        guard (0...maximumStops).contains(candidate.stops.count),
+              (1...8192).contains(candidate.width), (1...8192).contains(candidate.height),
+              unitValues.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
+              candidate.angleDegrees.isFinite,
+              candidate.centerX.isFinite, candidate.centerY.isFinite,
+              (-1...2).contains(candidate.centerX), (-1...2).contains(candidate.centerY),
+              candidate.fadeWidth.isFinite, (0.05...6).contains(candidate.fadeWidth),
+              [candidate.startX, candidate.startY, candidate.endX, candidate.endY].allSatisfy({ $0.isFinite && (-3...3).contains($0) }),
+              candidate.grainSize.isFinite, (0.25...10).contains(candidate.grainSize),
+              candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && Hex.normalized($0.hex) != nil })
+        else { throw CocoaError(.fileReadCorruptFile) }
+        return candidate
     }
 }

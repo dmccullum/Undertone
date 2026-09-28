@@ -1,5 +1,20 @@
 # First-build verification
 
+## Redesign: gradient library, naming and interface (unverified build)
+
+Written in a cloud container with no Swift toolchain, so this pass has been syntax-checked only. It has not been compiled, tested or run. Before relying on it, run `swift build` and `swift test` on a Mac, then check the app by hand:
+
+- Gradients tab: new, duplicate, rename, delete and undo delete; relaunch restores the last gradient with every setting and canvas size intact.
+- Automatic names change with the colors and stop changing after a rename; the dice popover offers five ideas.
+- On macOS 26 with Apple Intelligence on, the button shows sparkles and the ideas come from the on-device model. Building with Xcode 16 or earlier skips that code through `canImport(FoundationModels)`.
+- Canvas handles for Organic, Glow, Linear and Aurora; snapping and haptics on a Force Touch trackpad.
+- Color tray: edit popover, drag to reorder, add related tones, remove all.
+- Drag the canvas to Finder and Canva; ⌘C with the canvas focused; Copy Image and Export Image default names.
+- Undo and redo across slider drags, style changes and randomize.
+- Light and dark appearance of the blurred backdrop and inspector.
+- Migration: an existing `palettes.json` becomes gradients and is renamed `palettes-migrated.json`.
+
+
 ## Gradient modes
 
 - Added Organic, Linear, Magic Linear, Magic Single, Radial Glow, and Aurora as native inspector choices.
@@ -39,4 +54,4 @@
 - Following explicit user approval, the app launched and its native interface was inspected. An oversized AppKit drag thumbnail was found; explicit sizing, lower compression resistance and clipping were added. The updated release app builds successfully. Its visual recheck awaits restart; the running composition was left open to preserve user edits.
 - Copy Image reported success and an immediate New from Clipboard action in Preview created an Untitled image document. Prepare Drag reported a prepared PNG and enabled the drag source.
 - Direct Canva paste/drop, completed Finder drag, palette persistence through restart and save completion remain manual acceptance checks. The native recipe save panel opened successfully.
-- Grain is deterministic monochrome procedural noise. Preview and export now sample the same canvas-relative grain pattern, so exported texture retains its apparent size when viewed at preview scale. It has not been visually matched to Granular.
+- Grain is currently deterministic monochrome procedural noise. It has not been visually matched to Granular. Grain size is measured in rendered pixels, so the reduced preview does not reproduce exported grain density at the same viewing size.

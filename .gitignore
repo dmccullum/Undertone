@@ -4,3 +4,8 @@ build/
 DerivedData/
 *.xcuserstate
 .swiftpm/
+
+# Python tooling artifacts (icon experiments)
+.venv*/
+__pycache__/
+*.egg-info/
