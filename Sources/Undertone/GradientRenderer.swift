@@ -145,8 +145,9 @@ enum GradientRenderer {
                     seed: recipe.seed
                 )
                 : [Self.emptyColor]
-            // The seed shifts Tonal's flow field phases, so it can be reshuffled without changing color.
-            let tonal = recipe.mode == .tonal
+            // Organic and Tonal share a broad, seeded warp: the seed shifts its phases, so either can be
+            // reshuffled without changing color.
+            let tonal = recipe.mode == .tonal || recipe.mode == .organic
             xWarp = tonal ? (0..<height).map { row -> Double in
                 let y = normalizedCoordinate(row, count: height)
                 return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2 + phase) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2 + phase * 1.7) * 0.32)
@@ -162,7 +163,7 @@ enum GradientRenderer {
             let x = normalizedCoordinate(column, count: width), y = normalizedCoordinate(row, count: height)
             switch mode {
             case .organic:
-                return organic?.color(x: x, y: y) ?? Self.emptyColor
+                return organic?.color(x: x + xWarp[row], y: y + yWarp[column]) ?? Self.emptyColor
             case .mesh:
                 return mesh?.color(x: x, y: y, column: column, row: row) ?? Self.emptyColor
             case .tonal:
@@ -216,40 +217,45 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    /// Organic: loose, liquid color. Each point is a wide Gaussian blob, blended in OKLab so mixes
-    /// stay bright instead of going muddy. A seeded curl-noise current (Flow) and a vortex (Swirl) drag
-    /// the borders around like paint pulled through water, so each seed is its own happy accident.
+    /// Organic: loose, liquid color. Each point is a soft field with a long, gentle falloff (inverse
+    /// square around a softness core), blended in OKLab so wide mixes stay bright instead of going
+    /// muddy. Flow bends the canvas with broad, slow waves plus a light seeded curl, so borders billow
+    /// rather than streak; Swirl twists the middle. Each seed is its own happy accident.
     struct OrganicField: Sendable {
         struct Wave: Sendable { let dx: Double; let dy: Double; let frequency: Double; let phase: Double }
-        static let flowSteps = 4
+        static let flowSteps = 3
 
         let labs: [OKLab]
+        let chromas: [Double]
         let xs: [Double], ys: [Double], weights: [Double]
-        let falloff: Double
+        let core: Double
         let waves: [Wave]
         let flowStep: Double
         let swirlStrength: Double, swirlCenterX: Double, swirlCenterY: Double
 
         init(recipe: GradientRecipe, stops: [RenderStop]) {
-            labs = stops.map { OKLab($0.color) }
+            let labs = stops.map { OKLab($0.color) }
+            self.labs = labs
+            chromas = labs.map { sqrt($0.a * $0.a + $0.b * $0.b) }
             xs = stops.map(\.x); ys = stops.map(\.y); weights = stops.map(\.weight)
             let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
-            let sigma = 0.075 + softness * 0.26
-            falloff = 1 / (2 * sigma * sigma)
-            // A divergence-free current from a few seeded plane waves: long ones carry the color in
-            // big curls, short ones fray the edges.
-            waves = (0..<5).map { index in
+            let swirl = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
+            // Swirl compresses the field where it turns hardest; widen the core with it so edges stay soft.
+            core = (0.004 + softness * softness * 1.5) * (1 + swirl * 4)
+            // A light, divergence-free curl from a few long seeded waves: it rounds the borders into
+            // billows on top of the broad warp without fraying them.
+            waves = (0..<3).map { index in
                 let angle = GradientRenderer.seedUnit(recipe.seed, salt: UInt64(200 + index)) * .pi * 2
                 let phase = GradientRenderer.seedUnit(recipe.seed, salt: UInt64(300 + index)) * .pi * 2
-                return Wave(dx: cos(angle), dy: sin(angle), frequency: (0.85 + Double(index) * 0.5) * .pi * 2, phase: phase)
+                return Wave(dx: cos(angle), dy: sin(angle), frequency: (0.6 + Double(index) * 0.35) * .pi * 2, phase: phase)
             }
-            flowStep = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1) * 0.045
-            let swirl = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
+            flowStep = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1) * 0.025
             swirlStrength = swirl * swirl * 8.0 * ((recipe.seed & 2) == 0 ? 1.0 : -1.0)
             swirlCenterX = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
             swirlCenterY = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 92) - 0.5) * 0.5
         }
 
+        /// `x` and `y` arrive already bent by the scene's broad warp.
         func color(x: Double, y: Double) -> RGB {
             var px = x, py = y
             if flowStep > 0 {
@@ -271,22 +277,26 @@ enum GradientRenderer {
                 px = swirlCenterX + dx * cosT - dy * sinT
                 py = swirlCenterY + dx * sinT + dy * cosT
             }
-            // Weights relative to the nearest blob, so far corners never underflow to zero.
-            var nearest = Double.greatestFiniteMagnitude
+            var total = 0.0, lightness = 0.0, a = 0.0, b = 0.0, chroma = 0.0
             for index in xs.indices {
                 let dx = px - xs[index], dy = py - ys[index]
-                nearest = min(nearest, dx * dx + dy * dy)
-            }
-            var total = 0.0, lightness = 0.0, a = 0.0, b = 0.0
-            for index in xs.indices {
-                let dx = px - xs[index], dy = py - ys[index]
-                let weight = weights[index] * exp(-(dx * dx + dy * dy - nearest) * falloff)
+                let distance = dx * dx + dy * dy + core
+                let weight = weights[index] / (distance * distance)
                 total += weight
                 lightness += labs[index].lightness * weight
                 a += labs[index].a * weight
                 b += labs[index].b * weight
+                chroma += chromas[index] * weight
             }
-            return OKLab(lightness: lightness / total, a: a / total, b: b / total).rgb
+            a /= total; b /= total
+            // Averaging hues cancels saturation, so wide soft mixes drift to pastel gray. Give back part
+            // of what the mix lost (capped, so near-gray mixes of opposite colors stay calm).
+            let mixed = sqrt(a * a + b * b)
+            if mixed > 1e-4 {
+                let restore = 1 + (min(chroma / total / mixed, 1.8) - 1) * 0.6
+                a *= restore; b *= restore
+            }
+            return OKLab(lightness: lightness / total, a: a, b: b).rgb
         }
     }
 
