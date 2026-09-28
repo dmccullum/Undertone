@@ -236,6 +236,24 @@ final class RendererTests: XCTestCase {
         XCTAssertGreaterThan(difference, 20, "Average per-channel difference out of 255")
     }
 
+    /// A long, dark ramp with no grain (Coldwell Banker Blue into Midnight) must not step into bands.
+    func testDarkRampsWithoutGrainDoNotBand() throws {
+        var recipe = testRecipe()
+        recipe.mode = .linear
+        recipe.textureEnabled = false
+        recipe.stops = [ColorStop(hex: "012169", x: 0, y: 0), ColorStop(hex: "0A1730", x: 1, y: 1)]
+        recipe.startX = 0.5; recipe.startY = 0; recipe.endX = 0.5; recipe.endY = 1
+        let height = 1_440
+        let data = try pixels(in: GradientRenderer.render(recipe, width: 4, height: height))
+        var longest = 1, run = 1
+        for row in 1..<height {
+            let current = (row * 4 + 1) * 4, previous = ((row - 1) * 4 + 1) * 4
+            run = data[current..<current + 3] == data[previous..<previous + 3] ? run + 1 : 1
+            longest = max(longest, run)
+        }
+        XCTAssertLessThan(longest, 16, "Without dither this ramp holds each level for about 40 pixels")
+    }
+
     // Run explicitly in a release build with
     // UNDERTONE_RENDERER_BENCHMARK=1 swift test -c release --filter RendererTests/testOptionalLargeRenderBenchmark
     func testOptionalLargeRenderBenchmark() throws {

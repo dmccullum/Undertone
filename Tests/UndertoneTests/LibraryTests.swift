@@ -375,7 +375,7 @@ final class LibraryTests: XCTestCase {
     }
 
     /// Any number of tray colors fills either grid evenly, with each color in one connected patch.
-    func testAutomaticMeshFillIsEvenAndConnected() {
+    @MainActor func testAutomaticMeshFillIsEvenAndConnected() {
         for size in MeshGrid.sizes {
             let points = size * size
             for count in 1...StudioModel.maximumStops {
