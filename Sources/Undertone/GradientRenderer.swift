@@ -146,8 +146,9 @@ enum GradientRenderer {
                     seed: recipe.seed
                 )
                 : [Self.emptyColor]
-            // The seed shifts Tonal's flow field phases, so it can be reshuffled without changing color.
-            let tonal = recipe.mode == .tonal
+            // Tonal and Classic Organic share a broad, seeded warp: the seed shifts its phases, so either
+            // can be reshuffled without changing color.
+            let tonal = recipe.mode == .tonal || (recipe.mode == .organic && recipe.organicFlow == .classic)
             xWarp = tonal ? (0..<height).map { row -> Double in
                 let y = normalizedCoordinate(row, count: height)
                 return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2 + phase) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2 + phase * 1.7) * 0.32)
@@ -163,7 +164,9 @@ enum GradientRenderer {
             let x = normalizedCoordinate(column, count: width), y = normalizedCoordinate(row, count: height)
             switch mode {
             case .organic:
-                return organic?.color(x: x, y: y) ?? Self.emptyColor
+                // Classic Organic bends the canvas with the same broad warp Tonal uses.
+                let warped = xWarp.isEmpty ? (x, y) : (x + xWarp[row], y + yWarp[column])
+                return organic?.color(x: warped.0, y: warped.1) ?? Self.emptyColor
             case .mesh:
                 return mesh?.color(x: x, y: y, column: column, row: row) ?? Self.emptyColor
             case .tonal:
@@ -222,6 +225,8 @@ enum GradientRenderer {
     /// - Still: the fields melt into each other; only the points shape them.
     /// - Pull: each color stretches in its own seeded direction, like paint dragged by a brush.
     /// - Wave: borders ripple in long, soft waves along a seeded direction, like combed marbling.
+    /// - Classic: the original Organic's shapes, bent by the scene's broad seeded sine warp with the
+    ///   original falloff (widened by Swirl), but mixed in OKLab so soft blends don't go muddy gray.
     /// Flow sets how far colors are pulled or how high the waves run; Swirl adds a vortex.
     struct OrganicField: Sendable {
         let style: OrganicFlow
@@ -243,7 +248,10 @@ enum GradientRenderer {
             chromas = labs.map { sqrt($0.a * $0.a + $0.b * $0.b) }
             xs = stops.map(\.x); ys = stops.map(\.y); weights = stops.map(\.weight)
             let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
-            core = 0.002 + softness * softness * 0.45
+            let swirlAmount = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
+            core = style == .classic
+                ? (0.0025 + softness * softness * 1.20) * (1 + swirlAmount * 6.0)
+                : 0.002 + softness * softness * 0.45
             let flow = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1)
             // The seed sets every direction and phase, so Shuffle Flow redraws them without moving color.
             // One seeded brush direction, with each color straying from it a little.

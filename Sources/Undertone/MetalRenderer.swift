@@ -97,6 +97,7 @@ final class MetalRenderer: @unchecked Sendable {
                 stops.append(SIMD4(Float(organic.xs[index]), Float(organic.ys[index]), Float(organic.weights[index]), Float(organic.pullAngles[index])))
             }
             set(.organicCore, organic.core)
+            set(.organicClassic, organic.style == .classic ? 1 : 0)
             set(.organicPullStretch, organic.pullStretch)
             set(.organicWaveX, organic.waveX); set(.organicWaveY, organic.waveY)
             set(.organicWavePhaseA, organic.wavePhaseA); set(.organicWavePhaseB, organic.wavePhaseB)

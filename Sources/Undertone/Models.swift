@@ -31,9 +31,10 @@ struct ColorStop: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-/// How Organic's colors move: melt in place, stretch like dragged paint, or ripple in long waves.
+/// How Organic's colors move: melt in place, stretch like dragged paint, ripple in long waves, or
+/// bend with the original Organic's broad warp.
 enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
-    case still, pull, wave
+    case still, pull, wave, classic
 
     var id: String { rawValue }
     var title: String {
@@ -41,6 +42,7 @@ enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
         case .still: "Still"
         case .pull: "Pull"
         case .wave: "Wave"
+        case .classic: "Classic"
         }
     }
 

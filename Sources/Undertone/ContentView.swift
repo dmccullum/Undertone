@@ -182,10 +182,10 @@ struct InspectorView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .help("Still melts the colors in place, Pull drags each one in its own direction, Wave ripples the borders")
+                .help("Still melts the colors in place, Pull drags them like a brush, Wave ripples the borders, Classic is the original Organic")
             }
             if model.recipe.organicFlow != .still {
-                SliderControl(title: model.recipe.organicFlow == .pull ? "Pull" : "Wave height", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+                SliderControl(title: organicStrengthTitle, value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
             }
             SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
             SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
@@ -255,6 +255,14 @@ struct InspectorView: View {
     @ViewBuilder private var directionControls: some View {
         SliderControl(title: "Angle", value: $model.recipe.angleDegrees, range: 0...360, valueText: "\(Int(model.recipe.angleDegrees.rounded()))°")
         SliderControl(title: "Position", value: $model.recipe.gradientPosition, range: 0...1, valueText: percent(model.recipe.gradientPosition))
+    }
+
+    private var organicStrengthTitle: String {
+        switch model.recipe.organicFlow {
+        case .pull: "Pull"
+        case .wave: "Wave height"
+        case .still, .classic: "Flow"
+        }
     }
 
     private var meshCaption: String {

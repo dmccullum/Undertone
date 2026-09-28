@@ -56,6 +56,10 @@ enum RenderEngine {
         wave.organicFlow = .wave
         wave.flow = 1
         recipes.append(wave)
+        var classic = base
+        classic.organicFlow = .classic
+        classic.flow = 0.8
+        recipes.append(classic)
         var mesh = base
         mesh.mode = .mesh
         mesh.meshSize = 4
