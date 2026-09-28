@@ -22,7 +22,7 @@ import SwiftUI
 
     private static func style(_ window: NSWindow) {
         window.styleMask.insert(.fullSizeContentView)
-        window.titleVisibility = .hidden
+        window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unified
@@ -42,7 +42,7 @@ struct UndertoneApp: App {
                 .frame(minWidth: 980, minHeight: 660)
         }
         .defaultSize(width: 1_320, height: 860)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()
             StudioCommands(model: model)
@@ -64,9 +64,6 @@ struct StudioCommands: Commands {
                 .keyboardShortcut("o")
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { model.saveNow(confirm: true) }
-                .keyboardShortcut("s")
-            Divider()
             Button("Export Image…") { model.exportImage() }
                 .keyboardShortcut("e")
                 .disabled(model.isRendering)
@@ -79,9 +76,7 @@ struct StudioCommands: Commands {
         CommandMenu("Gradient") {
             Button("Randomize") { model.randomize() }
                 .keyboardShortcut("r")
-            Button("Rename…") {
-                if let id = model.currentGradientID { model.beginRenaming(id: id) }
-            }
+            Button("Rename…") { model.beginRenaming() }
             Button("Use Automatic Name") { model.useAutomaticName() }
             Divider()
             Menu("Style") {
@@ -90,11 +85,6 @@ struct StudioCommands: Commands {
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
             }
-            Divider()
-            Button("Delete Gradient") {
-                if let id = model.currentGradientID { model.deleteGradient(id: id) }
-            }
-            .keyboardShortcut(.delete, modifiers: [.command])
         }
     }
 }

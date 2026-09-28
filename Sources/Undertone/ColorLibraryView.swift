@@ -10,15 +10,12 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Library", selection: $tab) {
-                Text("Gradients").tag(SidebarTab.gradients)
-                Text("Colors").tag(SidebarTab.colors)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 12)
-            .padding(.top, 4)
-            .padding(.bottom, 8)
+            LibraryTabPicker(tab: $tab)
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
 
             switch tab {
             case .gradients: GradientLibraryView()
@@ -28,49 +25,101 @@ struct SidebarView: View {
     }
 }
 
+/// An equal-width, two-segment control for the sidebar tabs — tidier than a content-sized
+/// segmented picker whose segments differ in width.
+private struct LibraryTabPicker: View {
+    @Binding var tab: SidebarTab
+
+    var body: some View {
+        HStack(spacing: 4) {
+            segment("Gradients", .gradients)
+            segment("Colors", .colors)
+        }
+        .padding(3)
+        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func segment(_ title: String, _ value: SidebarTab) -> some View {
+        let selected = tab == value
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) { tab = value }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(nsColor: .controlColor))
+                            .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
+                    }
+                }
+                .foregroundStyle(selected ? .primary : .secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 // MARK: - Gradients
 
 struct GradientLibraryView: View {
     @EnvironmentObject private var model: StudioModel
+    @State private var renaming: SavedGradient?
 
     private var selection: Binding<UUID?> {
         Binding(get: { model.currentGradientID }, set: { model.selectGradient(id: $0) })
     }
 
     var body: some View {
-        List(selection: selection) {
-            ForEach(model.gradients) { gradient in
-                GradientRow(gradient: gradient, thumbnail: model.thumbnail(for: gradient))
-                    .tag(gradient.id)
-                    .contextMenu { menu(for: gradient) }
+        ScrollViewReader { proxy in
+            List(selection: selection) {
+                ForEach(model.gradients) { gradient in
+                    GradientRow(gradient: gradient, thumbnail: model.thumbnail(for: gradient))
+                        .tag(gradient.id)
+                        .contextMenu { menu(for: gradient) }
+                }
+            }
+            .listStyle(.sidebar)
+            // New and Duplicate insert at the top; scroll there so the new row isn't tucked under
+            // the tab picker.
+            .onChange(of: model.currentGradientID) { _, id in
+                guard let id, model.gradients.first?.id == id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .top) }
             }
         }
-        .listStyle(.sidebar)
         .onDeleteCommand {
             if let id = model.currentGradientID { model.deleteGradient(id: id) }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack {
-                Button("New Gradient", systemImage: "plus") { model.newGradient() }
-                    .buttonStyle(.borderless)
-                    .help("New gradient from the current colors (⌘N)")
+            HStack(spacing: 12) {
+                Button("New", systemImage: "plus") { model.newGradient() }
+                    .help("Start a new gradient (⌘N)")
                 Spacer()
+                Button("Duplicate", systemImage: "plus.square.on.square") {
+                    if let id = model.currentGradientID { model.duplicateGradient(id: id) }
+                }
+                .help("Duplicate the current gradient (⌘D)")
             }
+            .buttonStyle(.borderless)
             .padding(10)
             .background(.bar)
+        }
+        .sheet(item: $renaming) { gradient in
+            NameSheet(title: "Rename Gradient", message: nil, confirmTitle: "Rename", name: gradient.name) { name in
+                model.renameGradient(id: gradient.id, to: name)
+                return true
+            }
         }
     }
 
     @ViewBuilder private func menu(for gradient: SavedGradient) -> some View {
-        Button("Rename…") { model.beginRenaming(id: gradient.id) }
+        Button("Rename…") { renaming = gradient }
         Button("Duplicate") { model.duplicateGradient(id: gradient.id) }
-        Button("Replace with Current Gradient") { model.replaceGradient(id: gradient.id) }
-            .disabled(gradient.id == model.currentGradientID)
         Divider()
-        Button("Export Recipe…") {
-            model.selectGradient(id: gradient.id)
-            model.exportRecipe()
-        }
+        Button("Export Recipe…") { model.exportRecipe(id: gradient.id) }
         Divider()
         Button("Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
     }
@@ -330,11 +379,7 @@ private struct CollectionSection: View {
             }
             Divider()
             Button("Edit…") { showSheet(.editColor(libraryID: library.id, color: color)) }
-                .disabled(library.isBuiltIn)
-            Button("Rename…") { showSheet(.editColor(libraryID: library.id, color: color)) }
-                .disabled(library.isBuiltIn)
             Button("Delete", role: .destructive) { model.deleteLibraryColor(color.id, from: library.id) }
-                .disabled(library.isBuiltIn)
         }
     }
 }
@@ -374,7 +419,7 @@ private struct SwatchTile: View {
                     }
                     .shadow(color: .black.opacity(hovering ? 0.22 : 0.08), radius: hovering ? 6 : 2, y: 2)
                     .scaleEffect(hovering && isEnabled ? 1.04 : 1)
-                Text(color.name)
+                Text(color.displayName)
                     .font(.caption)
                     .lineLimit(1)
                     .foregroundStyle(count > 0 ? .primary : .secondary)
@@ -387,8 +432,8 @@ private struct SwatchTile: View {
         .onHover { hovering = $0 }
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: count)
-        .help("Add \(color.name) · #\(color.hex)")
-        .accessibilityLabel("\(color.name), \(color.hex)")
+        .help("Add \(color.displayName) · #\(color.hex)")
+        .accessibilityLabel("\(color.displayName), \(color.hex)")
         .accessibilityValue(count == 0 ? "Not in gradient" : "In gradient \(count) times")
         .accessibilityHint("Adds this color to the gradient")
     }
@@ -435,11 +480,13 @@ private struct ColorEditorSheet: View {
     @State var name: String
     @State var hex: String
     let save: (String, String) -> Bool
+    @FocusState private var focused: Bool
 
     init(title: String, confirmTitle: String, name: String, hex: String, save: @escaping (String, String) -> Bool) {
         self.title = title
         self.confirmTitle = confirmTitle
-        self._name = State(initialValue: name.isEmpty ? (Hex.normalized(hex).map(ColorNamer.name) ?? "") : name)
+        // Name is optional — leave it blank by default; the hex stands in where a name is needed.
+        self._name = State(initialValue: name)
         self._hex = State(initialValue: hex)
         self.save = save
     }
@@ -458,6 +505,8 @@ private struct ColorEditorSheet: View {
                     .frame(width: 56, height: 56)
                 Form {
                     TextField("Name", text: $name)
+                        .focused($focused)
+                        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focused = true } }
                     HStack {
                         TextField("Hex", text: $hex)
                         ColorPicker("Color", selection: colorBinding, supportsOpacity: false)
@@ -471,7 +520,7 @@ private struct ColorEditorSheet: View {
                 Button(confirmTitle) {
                     if save(name, hex) { dismiss() }
                 }
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Hex.normalized(hex) == nil)
+                .disabled(Hex.normalized(hex) == nil)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -487,6 +536,7 @@ private struct NameSheet: View {
     let confirmTitle: String
     @State var name: String
     let save: (String) -> Bool
+    @FocusState private var focused: Bool
 
     init(title: String, message: String?, confirmTitle: String, name: String, save: @escaping (String) -> Bool) {
         self.title = title
@@ -503,6 +553,8 @@ private struct NameSheet: View {
                 Text(message).foregroundStyle(.secondary)
             }
             TextField("Name", text: $name)
+                .focused($focused)
+                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focused = true } }
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()

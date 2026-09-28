@@ -2,178 +2,39 @@ import AppKit
 import SwiftUI
 
 struct StudioCanvas: View {
+    @EnvironmentObject private var model: StudioModel
+
     var body: some View {
         VStack(spacing: 0) {
-            CanvasHeader()
-                .padding(.horizontal, 28)
-                .padding(.top, 4)
-                .padding(.bottom, 10)
             GeometryReader { proxy in
                 ArtworkView()
                     .frame(maxWidth: max(0, min(proxy.size.width - 64, 920)), maxHeight: max(0, proxy.size.height - 24))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .padding(.top, 10)
             ColorTray()
                 .padding(.top, 14)
                 .padding(.bottom, 20)
                 .padding(.horizontal, 24)
         }
-    }
-}
-
-// MARK: - Header
-
-private struct CanvasHeader: View {
-    var body: some View {
-        HStack(alignment: .center, spacing: 4) {
-            GradientNameField()
-                .layoutPriority(1)
-            NameSuggestionButton()
-            Spacer(minLength: 12)
-            CanvasSizeMenu()
+        // The title is the native window title (shows "— Edited" for unsaved work); the toolbar just
+        // carries the actions on the trailing side.
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { model.randomize() } label: { Label("Randomize", systemImage: "shuffle") }
+                    .help("Randomize the layout (⌘R)")
+                Button { model.copyImage() } label: { Label("Copy image", systemImage: "doc.on.doc") }
+                    .help("Copy the full-size image (⇧⌘C)")
+                    .disabled(model.isRendering)
+                Button { model.exportImage() } label: { Label("Export", systemImage: "square.and.arrow.up") }
+                    .help("Export a PNG or JPEG (⌘E)")
+                    .disabled(model.isRendering)
+            }
         }
     }
 }
 
-/// Sized to its text, so the suggestion button sits right after the name.
-private struct GradientNameField: View {
-    @EnvironmentObject private var model: StudioModel
-    @State private var draft = ""
-    @State private var editingID: UUID?
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        Text(draft.isEmpty ? "Name" : draft)
-            .font(.title2.weight(.semibold))
-            .lineLimit(1)
-            .padding(.trailing, 6)
-            .hidden()
-            .overlay(alignment: .leading) {
-                TextField("Name", text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(.title2.weight(.semibold))
-                    .focused($focused)
-                    .onSubmit {
-                        commit()
-                        focused = false
-                    }
-            }
-            .onChange(of: focused) { _, isFocused in
-                if isFocused { editingID = model.currentGradientID } else { commit() }
-            }
-            .onAppear { draft = model.currentName }
-            .onChange(of: model.currentName) { _, name in
-                if !focused { draft = name }
-            }
-            .onChange(of: model.currentGradientID) { _, _ in
-                if focused { commit() }
-                draft = model.currentName
-            }
-            .onChange(of: model.renameRequest) { _, _ in
-                draft = model.currentName
-                focused = true
-            }
-            .help("Click to rename")
-            .accessibilityLabel("Gradient name")
-    }
-
-    private func commit() {
-        guard let id = editingID ?? model.currentGradientID else { return }
-        editingID = nil
-        if let gradient = model.gradients.first(where: { $0.id == id }), gradient.name != draft {
-            model.renameGradient(id: id, to: draft)
-        }
-        draft = model.currentName
-    }
-}
-
-private struct NameSuggestionButton: View {
-    @EnvironmentObject private var model: StudioModel
-    @State private var showsSuggestions = false
-
-    var body: some View {
-        Button {
-            model.prepareNameSuggestions()
-            showsSuggestions = true
-        } label: {
-            Image(systemName: model.canUseIntelligence ? "sparkles" : "dice")
-                .font(.system(size: 14, weight: .medium))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 24)
-        }
-        .buttonStyle(.borderless)
-        .help("Suggest a name")
-        .accessibilityLabel("Suggest a name")
-        .popover(isPresented: $showsSuggestions, arrowEdge: .bottom) {
-            NameSuggestionList(isPresented: $showsSuggestions)
-                .environmentObject(model)
-        }
-    }
-}
-
-private struct NameSuggestionList: View {
-    @EnvironmentObject private var model: StudioModel
-    @Binding var isPresented: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(model.canUseIntelligence ? "Apple Intelligence Ideas" : "Name Ideas")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if model.isThinkingOfNames { ProgressView().controlSize(.small) }
-            }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-
-            ForEach(model.nameSuggestions, id: \.self) { name in
-                SuggestionRow(name: name) {
-                    model.renameCurrentGradient(name)
-                    isPresented = false
-                }
-            }
-
-            Divider().padding(.vertical, 4)
-            HStack {
-                Button("More Ideas", systemImage: "arrow.clockwise") { model.suggestNames() }
-                Spacer()
-                Button("Automatic") {
-                    model.useAutomaticName()
-                    isPresented = false
-                }
-                .help("Let the name follow the colors")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .padding(.horizontal, 8)
-        }
-        .padding(10)
-        .frame(width: 250)
-    }
-}
-
-private struct SuggestionRow: View {
-    let name: String
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(name)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(hovering ? Color.accentColor.opacity(0.16) : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
-private struct CanvasSizeMenu: View {
+struct CanvasSizeMenu: View {
     @EnvironmentObject private var model: StudioModel
     @State private var showsCustom = false
 
@@ -264,7 +125,13 @@ private struct ArtworkView: View {
     @State private var snappedKeys: Set<String> = []
 
     private var ratio: CGFloat { CGFloat(model.recipe.width) / CGFloat(max(model.recipe.height, 1)) }
-    private var showsHandles: Bool { (hovering || draggingHandle) && model.recipe.mode != .tonal }
+    private var modeHasHandles: Bool {
+        switch model.recipe.mode {
+        case .organic, .mesh, .radial, .linear, .aurora: true
+        case .tonal: false
+        }
+    }
+    private var showsHandles: Bool { (hovering || draggingHandle || model.pointsRevealed) && modeHasHandles }
 
     var body: some View {
         GeometryReader { geometry in
@@ -329,9 +196,9 @@ private struct ArtworkView: View {
 
     @ViewBuilder private func handles(in size: CGSize) -> some View {
         switch model.recipe.mode {
-        case .organic:
+        case .organic, .mesh:
             ForEach(Array(model.recipe.stops.enumerated()), id: \.element.id) { index, stop in
-                PointHandle(color: stop.color)
+                PointHandle(color: stop.color, emphasized: stop.id == model.highlightedStopID)
                     .position(x: CGFloat(stop.x) * size.width, y: CGFloat(stop.y) * size.height)
                     .gesture(pointDrag(index: index, size: size))
                     .accessibilityLabel("Color \(index + 1) position")
@@ -344,10 +211,52 @@ private struct ArtworkView: View {
                 )
                 .gesture(centerDrag(size: size))
                 .accessibilityLabel("Glow center")
-        case .linear, .aurora:
+        case .linear:
+            linearHandles(in: size)
+        case .aurora:
             directionHandles(in: size)
         case .tonal:
             EmptyView()
+        }
+    }
+
+    /// Two draggable endpoints tinted with the first and last colors, joined by the gradient line.
+    private func linearHandles(in size: CGSize) -> some View {
+        let start = CGPoint(x: clamp(model.recipe.startX, 0, 1) * size.width, y: clamp(model.recipe.startY, 0, 1) * size.height)
+        let end = CGPoint(x: clamp(model.recipe.endX, 0, 1) * size.width, y: clamp(model.recipe.endY, 0, 1) * size.height)
+        return ZStack {
+            Path { path in
+                path.move(to: start)
+                path.addLine(to: end)
+            }
+            .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 5]))
+            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+            .allowsHitTesting(false)
+
+            PointHandle(color: model.recipe.stops.first?.color ?? .white)
+                .position(start)
+                .gesture(endpointDrag(size: size, isStart: true))
+                .accessibilityLabel("Gradient start")
+            PointHandle(color: model.recipe.stops.last?.color ?? .white)
+                .position(end)
+                .gesture(endpointDrag(size: size, isStart: false))
+                .accessibilityLabel("Gradient end")
+        }
+    }
+
+    private func endpointDrag(size: CGSize, isStart: Bool) -> some Gesture {
+        canvasDrag { location in
+            guard size.width > 0, size.height > 0 else { return }
+            // Keep endpoints on the canvas so the handles never hide behind the UI.
+            let x = snap(clamp(Double(location.x / size.width), 0, 1), key: isStart ? "sx" : "ex", targets: [0, 0.5, 1], tolerance: 0.02)
+            let y = snap(clamp(Double(location.y / size.height), 0, 1), key: isStart ? "sy" : "ey", targets: [0, 0.5, 1], tolerance: 0.02)
+            if isStart {
+                model.recipe.startX = x
+                model.recipe.startY = y
+            } else {
+                model.recipe.endX = x
+                model.recipe.endY = y
+            }
         }
     }
 
@@ -470,14 +379,21 @@ private struct ArtworkView: View {
 
 private struct PointHandle: View {
     let color: Color
+    var emphasized = false
 
     var body: some View {
         Circle()
             .fill(color)
-            .frame(width: 22, height: 22)
-            .overlay { Circle().strokeBorder(.white, lineWidth: 2.5) }
-            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-            .frame(width: 34, height: 34)
+            .frame(width: emphasized ? 26 : 22, height: emphasized ? 26 : 22)
+            .overlay { Circle().strokeBorder(.white, lineWidth: emphasized ? 3.5 : 2.5) }
+            // A steady outer ring marks the hovered point — no motion.
+            .overlay {
+                if emphasized {
+                    Circle().strokeBorder(.white.opacity(0.7), lineWidth: 2).frame(width: 40, height: 40)
+                }
+            }
+            .shadow(color: .black.opacity(emphasized ? 0.45 : 0.35), radius: emphasized ? 5 : 3, y: 1)
+            .frame(width: 40, height: 40)
             .contentShape(Circle())
     }
 }
@@ -596,6 +512,8 @@ private struct ColorTray: View {
         .overlay { Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
+        // Hovering anywhere over the tray reveals all the canvas points.
+        .onHover { model.setTrayHovering($0) }
     }
 
     private func dragOffset(for stop: ColorStop) -> CGSize {
@@ -661,7 +579,12 @@ private struct StopChip: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isLifted)
             .animation(.easeOut(duration: 0.15), value: isRemoving)
             .contentShape(Circle())
-            .onHover { hovering = $0 }
+            .onHover { isHovering in
+                hovering = isHovering
+                // Highlight this point on the canvas while hovering its chip.
+                if isHovering { model.highlightedStopID = stop.id }
+                else if model.highlightedStopID == stop.id { model.highlightedStopID = nil }
+            }
             .onTapGesture { editing = true }
             .popover(isPresented: $editing, arrowEdge: .top) {
                 StopEditor(stopID: stop.id, dismiss: { editing = false })
@@ -704,6 +627,29 @@ private struct StopEditor: View {
                 Text(model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if model.usesPointStrength {
+                    Divider()
+                    VStack(spacing: 5) {
+                        HStack(spacing: 6) {
+                            Text("Strength")
+                            if stop.weight != 1 {
+                                Button { model.setWeight(1, for: stopID) } label: {
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .font(.system(size: 9, weight: .semibold))
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
+                                .help("Reset to 100%")
+                            }
+                            Spacer()
+                            Text("\(Int((stop.weight * 100).rounded()))%")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .font(.caption)
+                        Slider(value: weightBinding, in: 0.1...3)
+                    }
+                }
                 HStack {
                     Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicateColor(id: stopID) }
                         .disabled(!model.canAddStop || model.recipe.mode == .tonal)
@@ -738,6 +684,13 @@ private struct StopEditor: View {
         Binding(
             get: { stop?.hex ?? "" },
             set: { model.setColor(hex: $0, for: stopID) }
+        )
+    }
+
+    private var weightBinding: Binding<Double> {
+        Binding(
+            get: { stop?.weight ?? 1 },
+            set: { model.setWeight($0, for: stopID) }
         )
     }
 }

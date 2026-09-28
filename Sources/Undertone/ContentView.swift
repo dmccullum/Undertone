@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: StudioModel
     @Environment(\.undoManager) private var undoManager
+    @State private var renaming = false
 
     var body: some View {
         NavigationSplitView {
@@ -12,13 +13,23 @@ struct ContentView: View {
         } detail: {
             HStack(spacing: 0) {
                 StudioCanvas()
-                Divider().opacity(0.5)
+                Divider()
                 InspectorView()
-                    .frame(width: 292)
+                    .frame(width: 300)
+                    .background(.regularMaterial)
             }
-            .background { AmbientBackdrop() }
         }
-        .toolbar(.hidden, for: .windowToolbar)
+        // The backdrop fills the whole window — including behind the transparent toolbar — so the
+        // content can sit in its safe area (no title-bar overlap, no dynamic insets) while the top
+        // band still shows the gradient instead of an empty bar.
+        .background { AmbientBackdrop() }
+        // Drive the native window title (left-aligned, no toolbar-control pill). Everything is always
+        // saved in the live-library model, so there's no "— Edited" state.
+        .background(WindowChrome(title: model.currentName.isEmpty ? "Untitled" : model.currentName))
+        .sheet(isPresented: $renaming) {
+            RenameGradientSheet().environmentObject(model)
+        }
+        .onChange(of: model.renameRequest) { _, _ in renaming = true }
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
         .alert("Couldn’t complete that action", isPresented: errorIsPresented) {
@@ -36,49 +47,67 @@ struct ContentView: View {
     }
 }
 
-/// Randomize, Copy and Export, at the top of the inspector.
-private struct InspectorActions: View {
-    @EnvironmentObject private var model: StudioModel
+/// Sets the native window title and the "— Edited" indicator, so the document status shows the
+/// native way (no toolbar-control pill on the title).
+private struct WindowChrome: NSViewRepresentable {
+    let title: String
 
-    var body: some View {
-        HStack(spacing: 8) {
-            InspectorActionButton(title: "Randomize", systemImage: "shuffle", help: "Randomize the layout (⌘R)") { model.randomize() }
-            InspectorActionButton(title: "Copy", systemImage: "doc.on.doc", help: "Copy the full-size image (⇧⌘C)") { model.copyImage() }
-                .disabled(model.isRendering)
-            InspectorActionButton(title: "Export", systemImage: "square.and.arrow.up", help: "Export a PNG or JPEG (⌘E)") { model.exportImage() }
-                .disabled(model.isRendering)
-        }
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { apply(to: view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { apply(to: nsView.window) }
+    }
+
+    private func apply(to window: NSWindow?) {
+        guard let window, window.title != title else { return }
+        window.title = title
     }
 }
 
-private struct InspectorActionButton: View {
-    let title: String
-    let systemImage: String
-    let help: String
-    let action: () -> Void
-    @State private var hovering = false
-    @Environment(\.isEnabled) private var isEnabled
+/// Renames the working document, with a shuffle to pull a fresh name from the colors.
+private struct RenameGradientSheet: View {
+    @EnvironmentObject private var model: StudioModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .medium))
-                    .frame(height: 18)
-                Text(title)
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Gradient").font(.title2.weight(.semibold))
+            HStack(spacing: 8) {
+                TextField("Name", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .onSubmit(commit)
+                Button {
+                    model.shuffleAutomaticName()
+                    draft = model.currentName
+                } label: {
+                    Image(systemName: "die.face.5")
+                }
+                .help("Suggest a name from the colors")
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(Color.primary.opacity(hovering && isEnabled ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
-            .contentShape(Rectangle())
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Rename") { commit() }.keyboardShortcut(.defaultAction)
+            }
         }
-        .buttonStyle(.plain)
-        .opacity(isEnabled ? 1 : 0.5)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .help(help)
+        .padding(20)
+        .frame(width: 360)
+        .onAppear {
+            draft = model.currentName
+            DispatchQueue.main.async { focused = true }
+        }
+    }
+
+    private func commit() {
+        model.renameCurrentGradient(draft)
+        dismiss()
     }
 }
 
@@ -86,30 +115,55 @@ struct InspectorView: View {
     @EnvironmentObject private var model: StudioModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            InspectorActions()
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
-                .padding(.bottom, 2)
-            form
+        form
+    }
+
+    // Custom cards instead of a grouped Form: a Form reserves a leading label column for Sliders,
+    // which pushes them off to the right. Cards keep the sliders full width.
+    private var form: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                InspectorCard {
+                    cardHeader("Canvas") {
+                        CanvasSizeMenu()
+                    }
+                }
+                InspectorCard {
+                    cardHeader("Style") { EmptyView() }
+                    StylePicker()
+                }
+                InspectorCard {
+                    cardHeader(model.recipe.mode.title) {
+                        ResetButton(help: "Reset \(model.recipe.mode.title) settings") { model.resetStyle() }
+                    }
+                    styleControls
+                }
+                InspectorCard {
+                    cardHeader("Texture") {
+                        ResetButton(help: "Reset texture") { model.resetTexture() }
+                        Toggle("Texture on", isOn: $model.recipe.textureEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                    }
+                    if model.recipe.textureEnabled {
+                        SliderControl(title: "Grain", value: $model.recipe.grain, range: 0...0.5, valueText: percent(model.recipe.grain))
+                        SliderControl(title: "Grain size", value: $model.recipe.grainSize, range: 0.5...3, valueText: String(format: "%.1f×", model.recipe.grainSize))
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 20)
         }
     }
 
-    private var form: some View {
-        Form {
-            Section("Style") {
-                StylePicker()
-            }
-            Section(model.recipe.mode.title) {
-                styleControls
-            }
-            Section("Texture") {
-                SliderControl(title: "Grain", value: $model.recipe.grain, range: 0...0.5, valueText: percent(model.recipe.grain))
-                SliderControl(title: "Grain size", value: $model.recipe.grainSize, range: 0.5...3, valueText: String(format: "%.1f×", model.recipe.grainSize))
-            }
+    private func cardHeader<Trailing: View>(_ title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+            trailing()
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
     }
 
     @ViewBuilder private var styleControls: some View {
@@ -117,24 +171,42 @@ struct InspectorView: View {
         case .organic:
             SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
             SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            Button("Shuffle Mesh", systemImage: "shuffle") { model.shuffleMesh() }
+                .help("Reshape the blend without moving your colors")
+        case .mesh:
+            SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            Button("Shuffle Mesh", systemImage: "shuffle") { model.shuffleMesh() }
+                .help("Reshape the flow without moving your colors")
         case .linear:
-            directionControls
-            SliderControl(title: "Fade width", value: $model.recipe.fadeWidth, range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
-            SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
-            SliderControl(title: "Color arc", value: $model.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
+            AnglePresetGrid(current: model.linearAngle) { model.setLinearAngle($0) }
+            Picker("Blend", selection: $model.recipe.smoothBlend) {
+                Text("Crisp").tag(false)
+                Text("Smooth").tag(true)
+            }
+            .pickerStyle(.segmented)
+            if !model.recipe.smoothBlend {
+                SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
+            }
         case .tonal:
             SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
             SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
             SliderControl(title: "Variation", value: $model.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
+            SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            Button("Shuffle Texture", systemImage: "shuffle") { model.shuffleMesh() }
+                .help("Vary the tonal shapes without changing the base color")
         case .radial:
             SliderControl(title: "Center X", value: $model.recipe.centerX, range: -1...2, valueText: percent(model.recipe.centerX))
             SliderControl(title: "Center Y", value: $model.recipe.centerY, range: -1...2, valueText: percent(model.recipe.centerY))
             SliderControl(title: "Spread", value: $model.recipe.fadeWidth, range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
             SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
         case .aurora:
+            AnglePresetGrid(current: model.recipe.angleDegrees) { model.recipe.angleDegrees = $0 }
             directionControls
             SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
-            SliderControl(title: "Fade width", value: $model.recipe.fadeWidth, range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
+            SliderControl(title: "Fade width", value: $model.recipe.fadeWidth, range: 0.15...5, valueText: percent(model.recipe.fadeWidth))
             SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
             SliderControl(title: "Color arc", value: $model.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
         }
@@ -210,6 +282,9 @@ private struct StyleTile: View {
 
 /// A tiny render of the artwork, blurred behind the interface so the window takes on its colors.
 /// It updates only when edits settle, so dragging never re-blurs the window.
+/// The window takes on the artwork's colors by blurring the live preview behind the interface.
+/// It reads the same preview image the canvas shows, so it tracks edits in realtime with no extra
+/// render and no update jump.
 struct AmbientBackdrop: View {
     @EnvironmentObject private var model: StudioModel
     @Environment(\.colorScheme) private var colorScheme
@@ -218,18 +293,16 @@ struct AmbientBackdrop: View {
         GeometryReader { proxy in
             ZStack {
                 Color(nsColor: .windowBackgroundColor)
-                if let image = model.ambientImage {
+                if let image = model.preview {
                     Image(nsImage: image)
                         .resizable()
-                        .interpolation(.high)
+                        .interpolation(.low)
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
-                        .blur(radius: 40, opaque: true)
+                        .blur(radius: 60, opaque: true)
                         .saturation(1.2)
                         .opacity(colorScheme == .dark ? 0.55 : 0.5)
-                        .id(ObjectIdentifier(image))
-                        .transition(.opacity)
                 }
                 Color(nsColor: .windowBackgroundColor)
                     .opacity(colorScheme == .dark ? 0.3 : 0.4)
@@ -240,6 +313,78 @@ struct AmbientBackdrop: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// Quick 45° angle presets for Linear and Aurora.
+struct AnglePresetGrid: View {
+    let current: Double
+    let onSelect: (Double) -> Void
+    private let angles: [Double] = [0, 45, 90, 135, 180, 225, 270, 315]
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Angle")
+                .font(.caption)
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(angles, id: \.self) { angle in
+                    let selected = isSelected(angle)
+                    Button { onSelect(angle) } label: {
+                        // 0° points right; rotating clockwise by the angle matches the on-canvas
+                        // direction (screen y runs downward).
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .rotationEffect(.degrees(angle))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(selected ? Color.accentColor : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .foregroundStyle(selected ? Color.white : Color.primary)
+                            .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(selected ? 0 : 0.1), lineWidth: 1) }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(Int(angle)) degrees")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    private func isSelected(_ angle: Double) -> Bool {
+        let diff = abs(current - angle).truncatingRemainder(dividingBy: 360)
+        return min(diff, 360 - diff) < 1.5
+    }
+}
+
+/// A rounded panel grouping related controls, matching the app's flat card style.
+private struct InspectorCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1) }
+    }
+}
+
+private struct ResetButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
