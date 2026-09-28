@@ -160,15 +160,20 @@ final class RendererTests: XCTestCase {
         assertPixel(data, width: 41, x: 40, y: 40, matches: "F2C66D")
     }
 
-    func testMeshPointsCanBePinnedToATrayColor() throws {
+    func testMeshPointsOwnTheirColors() throws {
         var recipe = testRecipe()
         recipe.mode = .mesh
         recipe.grain = 0
-        var vertices = MeshGrid.regular(size: 3)
-        vertices[0].stopID = recipe.stops[2].id
+        var vertices = MeshGrid.seeded(size: 3, colors: recipe.stops.map(\.hex))
+        vertices[0].hex = "2068FF"
         recipe.meshVertices = vertices
         let data = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
-        assertPixel(data, width: 41, x: 0, y: 0, matches: "F2C66D")
+        assertPixel(data, width: 41, x: 0, y: 0, matches: "2068FF")
+
+        // A painted mesh renders even with no colors in the gradient's list.
+        recipe.stops = []
+        let alone = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
+        assertPixel(alone, width: 41, x: 0, y: 0, matches: "2068FF")
     }
 
     /// The top of Mesh's Softness range blurs past the points for a hazier blend.
@@ -191,7 +196,7 @@ final class RendererTests: XCTestCase {
         recipe.mode = .mesh
         recipe.grain = 0
         let even = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 64))
-        var vertices = MeshGrid.regular(size: 3)
+        var vertices = MeshGrid.seeded(size: 3, colors: recipe.stops.map(\.hex))
         vertices[4].x = 0.8
         vertices[4].y = 0.3
         recipe.meshVertices = vertices
@@ -223,6 +228,26 @@ final class RendererTests: XCTestCase {
         func linear(_ byte: UInt8) -> Double { let v = Double(byte) / 255; return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
         let luminance = 0.2126 * linear(data[offset]) + 0.7152 * linear(data[offset + 1]) + 0.0722 * linear(data[offset + 2])
         XCTAssertGreaterThan(luminance, 0.8 * (0.2126 + 0.7152) / 2, "An RGB average would be about 0.2")
+    }
+
+    /// Still ignores Flow; Pull and Wave each move the colors their own way.
+    func testOrganicFlowStyles() throws {
+        var recipe = testRecipe()
+        recipe.grain = 0
+        func render(_ flow: OrganicFlow, strength: Double) throws -> Data {
+            recipe.organicFlow = flow
+            recipe.flow = strength
+            return try pixels(in: GradientRenderer.render(recipe, width: 48, height: 64))
+        }
+        XCTAssertEqual(try render(.still, strength: 0.2), try render(.still, strength: 1))
+        let still = try render(.still, strength: 1), pull = try render(.pull, strength: 1), wave = try render(.wave, strength: 1)
+        XCTAssertNotEqual(still, pull)
+        XCTAssertNotEqual(still, wave)
+        XCTAssertNotEqual(pull, wave)
+        XCTAssertEqual(try render(.pull, strength: 0), still, "No pull is Still")
+        XCTAssertEqual(GradientRecipe().organicFlow, .still)
+        let old = try JSONDecoder().decode(GradientRecipe.self, from: Data(#"{"mode": "organic"}"#.utf8))
+        XCTAssertEqual(old.organicFlow, .still, "Older files open as Still")
     }
 
     func testOrganicAndMeshLookClearlyDifferent() throws {

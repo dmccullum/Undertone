@@ -24,6 +24,16 @@ final class MetalParityTests: XCTestCase {
         print("Metal parity\n" + report.joined(separator: "\n"))
     }
 
+    /// The per-Mac gate the app runs at launch: this Mac's GPU must match the CPU within 2/255 on the
+    /// fixtures, and the engine then renders on the GPU.
+    func testThisMacPassesTheLaunchSelfTest() throws {
+        let gpu = try renderer()
+        let worst = try RenderEngine.selfTest(gpu)
+        print("Launch self-test: largest channel difference \(worst)/255")
+        XCTAssertLessThanOrEqual(worst, RenderEngine.tolerance)
+        XCTAssertTrue(RenderEngine.usesGPU)
+    }
+
     /// Full export sizes. Slow on the CPU in debug builds, so run on demand:
     ///     UNDERTONE_PARITY_FULL=1 swift test -c release --filter MetalParityTests
     func testFullSizeExportsMatch() throws {
@@ -95,6 +105,9 @@ final class MetalParityTests: XCTestCase {
         for mode in GradientMode.allCases {
             add(mode.title) { $0.mode = mode }
         }
+        add("Organic pull") { $0.organicFlow = .pull; $0.flow = 1 }
+        add("Organic classic swirl") { $0.organicFlow = .classic; $0.flow = 0.8; $0.swirl = 0.5 }
+        add("Organic wave, soft") { $0.organicFlow = .wave; $0.flow = 1; $0.softness = 0.9 }
         add("Organic crisp swirl") { $0.softness = 0.05; $0.flow = 1; $0.swirl = 0.8; $0.grainSize = 2.4 }
         add("Organic soft, eight colors") {
             $0.softness = 1; $0.grain = 0.5

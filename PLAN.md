@@ -38,7 +38,7 @@ Sol owns the renderer and tests. Terra owns the native interface. The coordinati
 - Undo/redo and library autosave shipped in the redesign. Still open: favorite compositions, color and position locks, export history.
 - Explore Liquid Blobs as the next distinct flowing mode and a richer editable mesh when point topology can be made clear.
 - Improve palette suggestions with perceptual color-space distances and editable brand tolerance; initial suggestions are deterministic related tones, not AI or a guarantee of brand compliance.
-- Switch the preview (an `MTKView` running `MetalRenderer`) and export to the GPU path, which passes its parity gate; keep the CPU renderer as the fallback. Then file promises for delayed drag export and background pre-rendering of the drag shelf.
+- File promises for delayed drag export and background pre-rendering of the drag shelf. Crossfades on style switches and undo were CPU-preview only; add a GPU equivalent if they're missed.
 - Test accessibility, light/dark mode and Intel hardware; Developer ID signing and notarization are a separate distribution milestone.
 
 ## Sources
