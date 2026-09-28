@@ -1,3 +1,0 @@
-docutils
-mcp[cli]<2,>=1.2.0
-pyyaml
