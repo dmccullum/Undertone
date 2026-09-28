@@ -35,6 +35,10 @@ import UniformTypeIdentifiers
     @Published var errorMessage: String?
 
     weak var undoManager: UndoManager?
+    /// Recipe edits undo against this target, so opening another gradient can drop them without
+    /// also dropping library undo (colors, collections, names), which doesn't depend on the canvas.
+    private let recipeUndoTarget = RecipeUndoTarget()
+    private final class RecipeUndoTarget {}
 
     private let gradientsURL: URL
     private let legacyPalettesURL: URL
@@ -177,7 +181,7 @@ import UniformTypeIdentifiers
         currentGradientID = id
         UserDefaults.standard.set(id.uuidString, forKey: Self.currentGradientPreference)
         load(gradient.recipe, animated: true)
-        undoManager?.removeAllActions()
+        undoManager?.removeAllActions(withTarget: recipeUndoTarget)
     }
 
     private func load(_ recipe: GradientRecipe, animated: Bool) {
@@ -203,7 +207,7 @@ import UniformTypeIdentifiers
         UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
         load(fresh, animated: true)
         saveNow()
-        undoManager?.removeAllActions()
+        undoManager?.removeAllActions(withTarget: recipeUndoTarget)
         return gradient.id
     }
 
@@ -275,6 +279,7 @@ import UniformTypeIdentifiers
     /// Renames a gradient (the current one by default). An empty name hands naming back to the generator.
     func renameGradient(id: UUID? = nil, to name: String) {
         guard let id = id ?? currentGradientID, let index = gradients.firstIndex(where: { $0.id == id }) else { return }
+        let previous = naming(at: index)
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             gradients[index].hasCustomName = false
@@ -285,6 +290,7 @@ import UniformTypeIdentifiers
             gradients[index].hasCustomName = true
         }
         saveNow()
+        registerRenameUndo(id: id, restoring: previous)
     }
 
     func renameCurrentGradient(_ name: String) { renameGradient(to: name) }
@@ -298,10 +304,42 @@ import UniformTypeIdentifiers
     /// Rolls a different automatic name from the current colors — used by the rename sheet's shuffle.
     func shuffleAutomaticName() {
         guard let index = currentIndex else { return }
+        let previous = naming(at: index)
         gradients[index].hasCustomName = false
         gradients[index].nameSeed = Int.random(in: 0...9_999)
         gradients[index].name = NameGenerator.name(for: recipe, seed: gradients[index].nameSeed)
         saveNow()
+        registerRenameUndo(id: gradients[index].id, restoring: previous)
+    }
+
+    /// Everything a rename touches: undoing one also restores whether the name follows the colors.
+    private struct Naming: Equatable { var name: String; var hasCustomName: Bool; var nameSeed: Int }
+
+    private func naming(at index: Int) -> Naming {
+        Naming(name: gradients[index].name, hasCustomName: gradients[index].hasCustomName, nameSeed: gradients[index].nameSeed)
+    }
+
+    private func registerRenameUndo(id: UUID, restoring previous: Naming) {
+        guard let undoManager, let index = gradients.firstIndex(where: { $0.id == id }), naming(at: index) != previous else { return }
+        undoManager.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { model.restoreNaming(previous, of: id) }
+        }
+        undoManager.setActionName("Rename Gradient")
+    }
+
+    private func restoreNaming(_ naming: Naming, of id: UUID) {
+        guard let index = gradients.firstIndex(where: { $0.id == id }) else { return }
+        let current = self.naming(at: index)
+        gradients[index].name = naming.name
+        gradients[index].hasCustomName = naming.hasCustomName
+        gradients[index].nameSeed = naming.nameSeed
+        // An automatic name follows the colors, which may have changed since.
+        if !naming.hasCustomName {
+            let source = id == currentGradientID ? recipe : gradients[index].recipe
+            gradients[index].name = NameGenerator.name(for: source, seed: naming.nameSeed)
+        }
+        saveNow()
+        registerRenameUndo(id: id, restoring: current)
     }
 
     func thumbnail(for gradient: SavedGradient) -> NSImage? {
@@ -334,8 +372,8 @@ import UniformTypeIdentifiers
         guard let undoManager else { return }
         if !undoBurstOpen {
             undoBurstOpen = true
-            undoManager.registerUndo(withTarget: self) { model in
-                MainActor.assumeIsolated { model.restore(old) }
+            undoManager.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in
+                MainActor.assumeIsolated { self?.restore(old) }
             }
             undoManager.setActionName("Gradient Change")
         }
@@ -349,8 +387,8 @@ import UniformTypeIdentifiers
 
     private func restore(_ target: GradientRecipe) {
         let current = recipe
-        undoManager?.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated { model.restore(current) }
+        undoManager?.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restore(current) }
         }
         undoBurstOpen = false
         isApplyingUndo = true
@@ -412,13 +450,30 @@ import UniformTypeIdentifiers
         do { try persistColorLibraries() } catch { errorMessage = error.localizedDescription }
     }
 
+    /// Color and collection edits undo by restoring the whole set of collections: it's small, and a
+    /// snapshot puts a deleted color or collection back exactly where it was.
+    private func registerLibraryUndo(_ actionName: String, restoring previous: [ColorLibrary]) {
+        guard let undoManager, previous != colorLibraries else { return }
+        undoManager.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated {
+                let current = model.colorLibraries
+                model.colorLibraries = previous
+                model.saveColorLibraries()
+                model.registerLibraryUndo(actionName, restoring: current)
+            }
+        }
+        undoManager.setActionName(actionName)
+    }
+
     @discardableResult func createColorLibrary(name: String, colors: [LibraryColor] = []) -> UUID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
+        let previous = colorLibraries
         let library = ColorLibrary(name: name, colors: colors)
         colorLibraries.append(library)
         do {
             try persistColorLibraries()
+            registerLibraryUndo("New Collection", restoring: previous)
             flash("Created \(name)")
             return library.id
         } catch {
@@ -442,22 +497,28 @@ import UniformTypeIdentifiers
     @discardableResult func renameColorLibrary(id: UUID, to name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let index = colorLibraries.firstIndex(where: { $0.id == id }), !colorLibraries[index].isBuiltIn else { return false }
+        let previous = colorLibraries
         colorLibraries[index].name = name
         saveColorLibraries()
+        registerLibraryUndo("Rename Collection", restoring: previous)
         return true
     }
 
     func deleteColorLibrary(id: UUID) {
         guard let library = colorLibraries.first(where: { $0.id == id }), !library.isBuiltIn else { return }
+        let previous = colorLibraries
         colorLibraries.removeAll { $0.id == id }
         saveColorLibraries()
+        registerLibraryUndo("Delete Collection", restoring: previous)
         flash("Deleted \(library.name)")
     }
 
     func deleteLibraryColor(_ colorID: UUID, from libraryID: UUID) {
         guard let index = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[index].isBuiltIn else { return }
+        let previous = colorLibraries
         colorLibraries[index].colors.removeAll { $0.id == colorID }
         saveColorLibraries()
+        registerLibraryUndo("Delete Color", restoring: previous)
     }
 
     @discardableResult func updateLibraryColor(_ colorID: UUID, in libraryID: UUID, name: String, hex: String) -> Bool {
@@ -465,15 +526,19 @@ import UniformTypeIdentifiers
         guard let hex = Hex.normalized(hex),
               let libraryIndex = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[libraryIndex].isBuiltIn,
               let colorIndex = colorLibraries[libraryIndex].colors.firstIndex(where: { $0.id == colorID }) else { return false }
+        let previous = colorLibraries
+        let onlyRenamed = previous[libraryIndex].colors[colorIndex].hex == hex
         colorLibraries[libraryIndex].colors[colorIndex].name = name
         colorLibraries[libraryIndex].colors[colorIndex].hex = hex
         saveColorLibraries()
+        registerLibraryUndo(onlyRenamed ? "Rename Color" : "Edit Color", restoring: previous)
         return true
     }
 
     @discardableResult func saveColor(name: String, hex: String, libraryID: UUID? = nil) -> UUID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let hex = Hex.normalized(hex) else { return nil }
+        let previous = colorLibraries
         var target = colorLibraries.firstIndex { $0.id == libraryID && !$0.isBuiltIn }
         if target == nil {
             target = colorLibraries.firstIndex { $0.name == "My Colors" && !$0.isBuiltIn }
@@ -487,10 +552,11 @@ import UniformTypeIdentifiers
         colorLibraries[target].colors.append(color)
         do {
             try persistColorLibraries()
+            registerLibraryUndo("Add Color", restoring: previous)
             flash("Saved \(color.displayName) to \(colorLibraries[target].name)")
             return colorLibraries[target].id
         } catch {
-            colorLibraries[target].colors.removeLast()
+            colorLibraries = previous
             errorMessage = error.localizedDescription
             return nil
         }
@@ -519,9 +585,11 @@ import UniformTypeIdentifiers
         let imported = ColorLibrary(name: name, colors: decoded.colors.map {
             LibraryColor(name: $0.name, hex: $0.hex.uppercased())
         })
+        let previous = colorLibraries
         colorLibraries.append(imported)
         do { try persistColorLibraries() }
-        catch { colorLibraries.removeAll { $0.id == imported.id }; throw error }
+        catch { colorLibraries = previous; throw error }
+        registerLibraryUndo("Import Collection", restoring: previous)
         flash("Imported \(imported.name)")
         return imported.id
     }
@@ -976,7 +1044,7 @@ import UniformTypeIdentifiers
             UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
             load(recipe, animated: true)
             saveNow()
-            undoManager?.removeAllActions()
+            undoManager?.removeAllActions(withTarget: recipeUndoTarget)
         } catch { errorMessage = "Could not open that recipe: \(error.localizedDescription)" }
     }
 
