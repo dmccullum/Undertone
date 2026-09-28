@@ -146,6 +146,96 @@ final class RendererTests: XCTestCase {
         XCTAssertNotEqual(try pixels(in: empty), try pixels(in: single))
     }
 
+    /// A mesh surface runs through its points, so each point's pixel shows exactly its tray color.
+    func testMeshPassesThroughItsPoints() throws {
+        var recipe = testRecipe()
+        recipe.mode = .mesh
+        recipe.grain = 0
+        let image = try GradientRenderer.render(recipe, width: 41, height: 41)
+        let data = try pixels(in: image)
+        // Three colors fill nine points in diagonal runs: top left, the middle diagonal, bottom right.
+        assertPixel(data, width: 41, x: 0, y: 0, matches: "E78670")
+        assertPixel(data, width: 41, x: 40, y: 0, matches: "6445A8")
+        assertPixel(data, width: 41, x: 20, y: 20, matches: "6445A8")
+        assertPixel(data, width: 41, x: 40, y: 40, matches: "F2C66D")
+    }
+
+    func testMeshPointsCanBePinnedToATrayColor() throws {
+        var recipe = testRecipe()
+        recipe.mode = .mesh
+        recipe.grain = 0
+        var vertices = MeshGrid.regular(size: 3)
+        vertices[0].stopID = recipe.stops[2].id
+        recipe.meshVertices = vertices
+        let data = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
+        assertPixel(data, width: 41, x: 0, y: 0, matches: "F2C66D")
+    }
+
+    /// The top of Mesh's Softness range blurs past the points for a hazier blend.
+    func testFullMeshSoftnessIsSofterThanTheClassicBlend() throws {
+        var recipe = testRecipe()
+        recipe.mode = .mesh
+        recipe.grain = 0
+        func contrast(_ softness: Double) throws -> Double {
+            recipe.softness = softness
+            let data = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
+            let values = stride(from: 0, to: data.count, by: 4).map { Double(data[$0]) + Double(data[$0 + 1]) + Double(data[$0 + 2]) }
+            let mean = values.reduce(0, +) / Double(values.count)
+            return values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(values.count)
+        }
+        XCTAssertLessThan(try contrast(1), try contrast(0.5) * 0.85)
+    }
+
+    func testMovingAMeshPointBendsTheBlend() throws {
+        var recipe = testRecipe()
+        recipe.mode = .mesh
+        recipe.grain = 0
+        let even = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 64))
+        var vertices = MeshGrid.regular(size: 3)
+        vertices[4].x = 0.8
+        vertices[4].y = 0.3
+        recipe.meshVertices = vertices
+        let bent = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 64))
+        XCTAssertNotEqual(even, bent)
+        // The center color now sits where the point moved.
+        assertPixel(bent, width: 64, x: Int((0.8 * 63).rounded()), y: Int((0.3 * 63).rounded()), matches: "6445A8", tolerance: 4)
+    }
+
+    func testFourByFourMeshRenders() throws {
+        var recipe = testRecipe()
+        recipe.mode = .mesh
+        recipe.grain = 0
+        let three = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 64))
+        recipe.meshSize = 4
+        let four = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 64))
+        XCTAssertNotEqual(three, four)
+    }
+
+    /// Organic mixes in OKLab: halfway between red and green is a bright yellow, not RGB's dark olive.
+    func testOrganicBlendsInOKLab() throws {
+        var recipe = testRecipe()
+        recipe.stops = [ColorStop(hex: "FF0000", x: 0.25, y: 0.5), ColorStop(hex: "00FF00", x: 0.75, y: 0.5)]
+        recipe.grain = 0
+        recipe.flow = 0
+        recipe.swirl = 0
+        let data = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
+        let offset = (20 * 41 + 20) * 4
+        func linear(_ byte: UInt8) -> Double { let v = Double(byte) / 255; return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let luminance = 0.2126 * linear(data[offset]) + 0.7152 * linear(data[offset + 1]) + 0.0722 * linear(data[offset + 2])
+        XCTAssertGreaterThan(luminance, 0.8 * (0.2126 + 0.7152) / 2, "An RGB average would be about 0.2")
+    }
+
+    func testOrganicAndMeshLookClearlyDifferent() throws {
+        var recipe = testRecipe()
+        recipe.grain = 0
+        recipe.width = 60; recipe.height = 80
+        let organic = try pixels(in: GradientRenderer.render(recipe, width: 60, height: 80))
+        recipe.mode = .mesh
+        let mesh = try pixels(in: GradientRenderer.render(recipe, width: 60, height: 80))
+        let difference = zip(organic, mesh).reduce(0.0) { $0 + abs(Double($1.0) - Double($1.1)) } / Double(organic.count) * 4 / 3
+        XCTAssertGreaterThan(difference, 20, "Average per-channel difference out of 255")
+    }
+
     // Run explicitly in a release build with
     // UNDERTONE_RENDERER_BENCHMARK=1 swift test -c release --filter RendererTests/testOptionalLargeRenderBenchmark
     func testOptionalLargeRenderBenchmark() throws {
@@ -154,14 +244,18 @@ final class RendererTests: XCTestCase {
             "Set UNDERTONE_RENDERER_BENCHMARK=1 to render 4K and 8K fixtures."
         )
 
-        for (label, width, height) in [("4K", 3_840, 2_160), ("8K", 7_680, 4_320)] {
-            let start = Date()
-            let image = try GradientRenderer.render(testRecipe(), width: width, height: height)
-            let duration = Date().timeIntervalSince(start)
+        for mode in GradientMode.allCases {
+            for (label, width, height) in [("preview", 960, 1_280), ("thumbnail", 120, 90), ("4K", 3_840, 2_160), ("8K", 7_680, 4_320)] {
+                var recipe = testRecipe()
+                recipe.mode = mode
+                let start = Date()
+                let image = try GradientRenderer.render(recipe, width: width, height: height)
+                let duration = Date().timeIntervalSince(start)
 
-            XCTAssertEqual(image.width, width)
-            XCTAssertEqual(image.height, height)
-            print("Undertone renderer \(label): \(String(format: "%.3f", duration))s")
+                XCTAssertEqual(image.width, width)
+                XCTAssertEqual(image.height, height)
+                print("Undertone renderer \(mode.title) \(label): \(String(format: "%.3f", duration))s")
+            }
         }
     }
 
@@ -180,6 +274,14 @@ final class RendererTests: XCTestCase {
             width: 48,
             height: 32
         )
+    }
+
+    private func assertPixel(_ data: Data, width: Int, x: Int, y: Int, matches hex: String, tolerance: Int = 2, file: StaticString = #filePath, line: UInt = #line) {
+        let offset = (y * width + x) * 4
+        let expected = Hex.components(hex)
+        for (channel, value) in [expected.red, expected.green, expected.blue].enumerated() {
+            XCTAssertLessThanOrEqual(abs(Int(data[offset + channel]) - Int((value * 255).rounded())), tolerance, "Channel \(channel) at \(x),\(y)", file: file, line: line)
+        }
     }
 
     private func pixels(in image: CGImage) throws -> Data {

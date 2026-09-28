@@ -48,7 +48,7 @@ enum GradientRenderer {
         let lineLengthSquared = max(1e-9, lineDX * lineDX + lineDY * lineDY)
         let centerX = clamp(recipe.centerX, lower: -1, upper: 2)
         let centerY = clamp(recipe.centerY, lower: -1, upper: 2)
-        // Swirl: a vortex domain-warp for Organic/Tonal. Strength eases in; the seed picks the center
+        // Swirl: a vortex domain-warp for Tonal. Strength eases in; the seed picks the center
         // and spin direction, so Shuffle Mesh reshuffles the swirl too.
         let swirlAmount = clamp(recipe.swirl, lower: 0, upper: 1)
         // The twist compresses the field where it rotates hardest, which reads as harder edges; widen
@@ -62,9 +62,8 @@ enum GradientRenderer {
         let swirlCenterX = 0.5 + (seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
         let swirlCenterY = 0.5 + (seedUnit(recipe.seed, salt: 92) - 0.5) * 0.5
 
-        // Mesh: soft color cells from the positioned points — flatter, more defined regions than
-        // Organic's gauzy metaballs. Softness sets how soft the cell borders are.
-        let meshTemperature = 0.035 + softness * softness * 0.30 * (1 + swirlAmount * 3.0)
+        let organic = recipe.mode == .organic && hasColors ? OrganicField(recipe: recipe, stops: suppliedStops) : nil
+        let mesh = recipe.mode == .mesh && hasColors ? MeshRaster(recipe: recipe, width: width, height: height) : nil
         let emptyColor = RGB(red: 0.13, green: 0.14, blue: 0.17)
         let usesPalette = recipe.mode == .linear || recipe.mode == .aurora || recipe.mode == .radial
         let palette = hasColors && usesPalette
@@ -77,8 +76,7 @@ enum GradientRenderer {
                 seed: recipe.seed
             )
             : [emptyColor]
-        // The seed shifts the flow field's phases, so Organic's mesh can be reshuffled without
-        // moving any color.
+        // The seed shifts Tonal's flow field phases, so it can be reshuffled without changing color.
         let xWarp = (0..<height).map { row -> Double in
             let y = normalizedCoordinate(row, count: height)
             return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2 + phase) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2 + phase * 1.7) * 0.32)
@@ -99,7 +97,11 @@ enum GradientRenderer {
                 if !hasColors {
                     color = emptyColor
                 } else { switch recipe.mode {
-                case .organic, .tonal, .mesh:
+                case .organic:
+                    color = organic?.color(x: x, y: y) ?? emptyColor
+                case .mesh:
+                    color = mesh?.color(x: x, y: y, column: column, row: row) ?? emptyColor
+                case .tonal:
                     var sx = x + xWarp[row]
                     var sy = y + yWarp[column]
                     if swirlStrength > 0 {
@@ -109,11 +111,7 @@ enum GradientRenderer {
                         sx = swirlCenterX + dx * cosT - dy * sinT
                         sy = swirlCenterY + dx * sinT + dy * cosT
                     }
-                    if recipe.mode == .mesh {
-                        color = meshColor(stops: stops, x: sx, y: sy, temperature: meshTemperature)
-                    } else {
-                        color = organicColor(stops: stops, x: sx, y: sy, softnessCore: softnessCore)
-                    }
+                    color = tonalColor(stops: stops, x: sx, y: sy, softnessCore: softnessCore)
                 case .linear:
                     let projection = ((x - lineStartX) * lineDX + (y - lineStartY) * lineDY) / lineLengthSquared
                     color = paletteColor(palette, at: projection)
@@ -147,7 +145,8 @@ enum GradientRenderer {
         return image
     }
 
-    private static func organicColor(stops: [RenderStop], x: Double, y: Double, softnessCore: Double) -> RGB {
+    /// Tonal's blend: an inverse-square field of its derived tones, averaged in RGB.
+    private static func tonalColor(stops: [RenderStop], x: Double, y: Double, softnessCore: Double) -> RGB {
         var weightTotal = 0.0, red = 0.0, green = 0.0, blue = 0.0
         for stop in stops {
             let dx = x - stop.x, dy = y - stop.y
@@ -161,20 +160,180 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    /// A positional mesh: soft color cells around each point (a smooth Voronoi). Flatter, more
-    /// defined regions than Organic's gauzy metaballs; `temperature` sets how soft the borders are.
-    private static func meshColor(stops: [RenderStop], x: Double, y: Double, temperature: Double) -> RGB {
-        var weightTotal = 0.0, red = 0.0, green = 0.0, blue = 0.0
-        for stop in stops {
-            let dx = x - stop.x, dy = y - stop.y
-            let weight = stop.weight * exp(-sqrt(dx * dx + dy * dy) / temperature)
-            weightTotal += weight
-            red += stop.color.red * weight
-            green += stop.color.green * weight
-            blue += stop.color.blue * weight
+    /// Organic: loose, liquid color. Each point is a wide Gaussian blob, blended in OKLab so mixes
+    /// stay bright instead of going muddy. A seeded curl-noise current (Flow) and a vortex (Swirl) drag
+    /// the borders around like paint pulled through water, so each seed is its own happy accident.
+    private struct OrganicField: Sendable {
+        private struct Wave: Sendable { let dx: Double; let dy: Double; let frequency: Double; let phase: Double }
+        private static let flowSteps = 4
+
+        private let labs: [OKLab]
+        private let xs: [Double], ys: [Double], weights: [Double]
+        private let falloff: Double
+        private let waves: [Wave]
+        private let flowStep: Double
+        private let swirlStrength: Double, swirlCenterX: Double, swirlCenterY: Double
+
+        init(recipe: GradientRecipe, stops: [RenderStop]) {
+            labs = stops.map { OKLab($0.color) }
+            xs = stops.map(\.x); ys = stops.map(\.y); weights = stops.map(\.weight)
+            let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
+            let sigma = 0.075 + softness * 0.26
+            falloff = 1 / (2 * sigma * sigma)
+            // A divergence-free current from a few seeded plane waves: long ones carry the color in
+            // big curls, short ones fray the edges.
+            waves = (0..<5).map { index in
+                let angle = GradientRenderer.seedUnit(recipe.seed, salt: UInt64(200 + index)) * .pi * 2
+                let phase = GradientRenderer.seedUnit(recipe.seed, salt: UInt64(300 + index)) * .pi * 2
+                return Wave(dx: cos(angle), dy: sin(angle), frequency: (0.85 + Double(index) * 0.5) * .pi * 2, phase: phase)
+            }
+            flowStep = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1) * 0.045
+            let swirl = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
+            swirlStrength = swirl * swirl * 8.0 * ((recipe.seed & 2) == 0 ? 1.0 : -1.0)
+            swirlCenterX = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
+            swirlCenterY = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 92) - 0.5) * 0.5
         }
-        guard weightTotal > 1e-9 else { return stops[0].color }
-        return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
+
+        func color(x: Double, y: Double) -> RGB {
+            var px = x, py = y
+            if flowStep > 0 {
+                for _ in 0..<Self.flowSteps {
+                    var vx = 0.0, vy = 0.0
+                    for wave in waves {
+                        let c = cos((px * wave.dx + py * wave.dy) * wave.frequency + wave.phase)
+                        vx += c * wave.dy
+                        vy -= c * wave.dx
+                    }
+                    px += vx * flowStep
+                    py += vy * flowStep
+                }
+            }
+            if swirlStrength != 0 {
+                let dx = px - swirlCenterX, dy = py - swirlCenterY
+                let twist = swirlStrength * exp(-(dx * dx + dy * dy) * 3.2)
+                let cosT = cos(twist), sinT = sin(twist)
+                px = swirlCenterX + dx * cosT - dy * sinT
+                py = swirlCenterY + dx * sinT + dy * cosT
+            }
+            // Weights relative to the nearest blob, so far corners never underflow to zero.
+            var nearest = Double.greatestFiniteMagnitude
+            for index in xs.indices {
+                let dx = px - xs[index], dy = py - ys[index]
+                nearest = min(nearest, dx * dx + dy * dy)
+            }
+            var total = 0.0, lightness = 0.0, a = 0.0, b = 0.0
+            for index in xs.indices {
+                let dx = px - xs[index], dy = py - ys[index]
+                let weight = weights[index] * exp(-(dx * dx + dy * dy - nearest) * falloff)
+                total += weight
+                lightness += labs[index].lightness * weight
+                a += labs[index].a * weight
+                b += labs[index].b * weight
+            }
+            return OKLab(lightness: lightness / total, a: a / total, b: b / total).rgb
+        }
+    }
+
+    /// Mesh: a true gradient mesh. The tray colors sit on a grid of points and a Catmull-Rom surface
+    /// in OKLab runs smoothly through them. Moving a point bends the grid, so transitions follow curved,
+    /// directional seams. The surface is cut into small triangles; each pixel interpolates the one it
+    /// falls in (the last one drawn wins where a fold overlaps).
+    private struct MeshRaster: Sendable {
+        private static let tileSize = 16
+        private static let subdivisions = 24
+
+        private let samples: Int
+        private let px: [Double], py: [Double]
+        private let lightness: [Double], aChannel: [Double], bChannel: [Double]
+        private let triangles: [Int32]
+        private let tiles: [[Int32]]
+        private let tileColumns: Int, tileRows: Int
+        private let scaleX: Double, scaleY: Double
+
+        init(recipe: GradientRecipe, width: Int, height: Int) {
+            let size = MeshGrid.clampedSize(recipe.meshSize)
+            let vertices = MeshGrid.vertices(for: recipe)
+            let labs = vertices.enumerated().map { index, vertex -> OKLab in
+                guard let stop = MeshGrid.stopIndex(of: vertex, at: index, size: size, in: recipe.stops) else { return OKLab(RGB(red: 0, green: 0, blue: 0)) }
+                return OKLab(RenderStop(recipe.stops[stop]).color)
+            }
+            let samples = (size - 1) * Self.subdivisions + 1
+            // Softness: the lower half sets how long each color holds around its point (crisp seams
+            // up to a classic mesh gradient that runs exactly through its points); the upper half
+            // eases into a blurred B-spline for a hazy, dreamy blend.
+            let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
+            let crisp = min(1, softness / 0.5), dreamy = max(0, (softness - 0.5) / 0.5)
+            let tension = 0.6 + crisp * 0.4
+            let sharpness = 1 + (1 - crisp) * (1 - crisp) * 0.45
+            func channel(_ values: [Double]) -> [Double] {
+                MeshGrid.sampledSurface(MeshGrid.smoothed(values, size: size, amount: dreamy * 0.3), size: size, samples: samples, tension: tension, sharpness: sharpness, approximation: dreamy, extrapolate: false)
+            }
+            self.samples = samples
+            scaleX = Double(max(width - 1, 1)); scaleY = Double(max(height - 1, 1))
+            px = MeshGrid.sampledSurface(vertices.map(\.x), size: size, samples: samples, monotone: true).map { $0 * Double(max(width - 1, 1)) }
+            py = MeshGrid.sampledSurface(vertices.map(\.y), size: size, samples: samples, monotone: true).map { $0 * Double(max(height - 1, 1)) }
+            lightness = channel(labs.map(\.lightness))
+            aChannel = channel(labs.map(\.a))
+            bChannel = channel(labs.map(\.b))
+
+            var triangles: [Int32] = []
+            triangles.reserveCapacity((samples - 1) * (samples - 1) * 6)
+            for row in 0..<(samples - 1) {
+                for column in 0..<(samples - 1) {
+                    let a = Int32(row * samples + column), b = a + 1, c = a + Int32(samples), d = c + 1
+                    triangles += [a, b, d, a, d, c]
+                }
+            }
+            self.triangles = triangles
+            tileColumns = (width + Self.tileSize - 1) / Self.tileSize
+            tileRows = (height + Self.tileSize - 1) / Self.tileSize
+            var tiles = [[Int32]](repeating: [], count: tileColumns * tileRows)
+            let px = self.px, py = self.py
+            for triangle in 0..<(triangles.count / 3) {
+                let a = Int(triangles[triangle * 3]), b = Int(triangles[triangle * 3 + 1]), c = Int(triangles[triangle * 3 + 2])
+                let lowX = min(px[a], px[b], px[c]) - 1, highX = max(px[a], px[b], px[c]) + 1
+                let lowY = min(py[a], py[b], py[c]) - 1, highY = max(py[a], py[b], py[c]) + 1
+                let minColumn = max(0, Int(max(0, lowX)) / Self.tileSize), maxColumn = min(tileColumns - 1, Int(max(0, highX)) / Self.tileSize)
+                let minRow = max(0, Int(max(0, lowY)) / Self.tileSize), maxRow = min(tileRows - 1, Int(max(0, highY)) / Self.tileSize)
+                guard minColumn <= maxColumn, minRow <= maxRow else { continue }
+                for tileRow in minRow...maxRow {
+                    for tileColumn in minColumn...maxColumn { tiles[tileRow * tileColumns + tileColumn].append(Int32(triangle)) }
+                }
+            }
+            self.tiles = tiles
+        }
+
+        func color(x: Double, y: Double, column: Int, row: Int) -> RGB {
+            let pointX = x * scaleX, pointY = y * scaleY
+            let tile = tiles[min(tileRows - 1, row / Self.tileSize) * tileColumns + min(tileColumns - 1, column / Self.tileSize)]
+            for triangle in tile.reversed() {
+                let base = Int(triangle) * 3
+                let a = Int(triangles[base]), b = Int(triangles[base + 1]), c = Int(triangles[base + 2])
+                let e0x = px[b] - px[a], e0y = py[b] - py[a]
+                let e1x = px[c] - px[a], e1y = py[c] - py[a]
+                let area = e0x * e1y - e1x * e0y
+                guard abs(area) > 1e-12 else { continue }
+                let qx = pointX - px[a], qy = pointY - py[a]
+                let wb = (qx * e1y - e1x * qy) / area
+                let wc = (e0x * qy - qx * e0y) / area
+                let wa = 1 - wb - wc
+                let tolerance = -1e-6
+                guard wa >= tolerance, wb >= tolerance, wc >= tolerance else { continue }
+                return OKLab(
+                    lightness: wa * lightness[a] + wb * lightness[b] + wc * lightness[c],
+                    a: wa * aChannel[a] + wb * aChannel[b] + wc * aChannel[c],
+                    b: wa * bChannel[a] + wb * bChannel[b] + wc * bChannel[c]
+                ).rgb
+            }
+            // Numerical slivers along a seam: fall back to the nearest surface sample.
+            var nearest = 0, best = Double.greatestFiniteMagnitude
+            for index in px.indices {
+                let dx = px[index] - pointX, dy = py[index] - pointY
+                let distance = dx * dx + dy * dy
+                if distance < best { best = distance; nearest = index }
+            }
+            return OKLab(lightness: lightness[nearest], a: aChannel[nearest], b: bChannel[nearest]).rgb
+        }
     }
 
     private static func makePalette(stops: [RenderStop], magic: Bool, smooth: Bool = false, easing: Double, colorArc: Double, seed: UInt64) -> [RGB] {

@@ -177,14 +177,35 @@ struct InspectorView: View {
             SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
             SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
             SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
-            Button("Shuffle Mesh", systemImage: "shuffle") { model.shuffleMesh() }
-                .help("Reshape the blend without moving your colors")
-        case .mesh:
-            SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
-            SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
-            SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
-            Button("Shuffle Mesh", systemImage: "shuffle") { model.shuffleMesh() }
+            Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
                 .help("Reshape the flow without moving your colors")
+        case .mesh:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Grid")
+                    .font(.caption)
+                Picker("Grid", selection: Binding(get: { model.meshSize }, set: { model.setMeshSize($0) })) {
+                    ForEach(MeshGrid.sizes, id: \.self) { size in
+                        Text("\(size) × \(size)").tag(size)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            HStack(spacing: 8) {
+                Button { model.straightenMesh() } label: {
+                    Text("Straighten").frame(maxWidth: .infinity)
+                }
+                .help("Put every point back on an even grid, keeping its color")
+                Button { model.shuffleMeshColors() } label: {
+                    Text("Shuffle Colors").frame(maxWidth: .infinity)
+                }
+                .help("Deal your colors across the points in a new arrangement")
+                .disabled(model.recipe.stops.count < 2)
+            }
+            Text(meshCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         case .linear:
             AnglePresetGrid(current: model.linearAngle) { model.setLinearAngle($0) }
             Picker("Blend", selection: $model.recipe.smoothBlend) {
@@ -220,6 +241,15 @@ struct InspectorView: View {
     @ViewBuilder private var directionControls: some View {
         SliderControl(title: "Angle", value: $model.recipe.angleDegrees, range: 0...360, valueText: "\(Int(model.recipe.angleDegrees.rounded()))°")
         SliderControl(title: "Position", value: $model.recipe.gradientPosition, range: 0...1, valueText: percent(model.recipe.gradientPosition))
+    }
+
+    private var meshCaption: String {
+        let points = model.meshSize * model.meshSize
+        switch model.recipe.stops.count {
+        case 0: return "Add colors to the tray to fill the \(points) points."
+        case 1: return "One color fills all \(points) points. Add another to shape the mesh."
+        case let count: return "\(count) colors flow across \(points) points. Drag a point to bend the grid; click one to pick its color."
+        }
     }
 
     private func percent(_ value: Double) -> String {

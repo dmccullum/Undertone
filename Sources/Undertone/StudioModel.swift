@@ -662,14 +662,85 @@ import UniformTypeIdentifiers
         recipe.stops[index].hex = hex
     }
 
-    /// How strongly a color point pulls in the point-based styles (Organic, Mesh).
+    /// How strongly a color point pulls in Organic.
     func setWeight(_ weight: Double, for id: UUID) {
         guard let index = recipe.stops.firstIndex(where: { $0.id == id }) else { return }
         recipe.stops[index].weight = min(4, max(0.1, weight))
     }
 
     /// Whether the current style uses per-point strength (i.e. blends positioned points spatially).
-    var usesPointStrength: Bool { recipe.mode == .organic || recipe.mode == .mesh }
+    var usesPointStrength: Bool { recipe.mode == .organic }
+
+    // MARK: - Mesh grid
+
+    var meshVertices: [MeshVertex] { MeshGrid.vertices(for: recipe) }
+    var meshSize: Int { MeshGrid.clampedSize(recipe.meshSize) }
+
+    /// The tray color a mesh point shows.
+    func meshStop(at index: Int) -> ColorStop? {
+        let vertices = meshVertices
+        guard vertices.indices.contains(index),
+              let stop = MeshGrid.stopIndex(of: vertices[index], at: index, size: meshSize, in: recipe.stops) else { return nil }
+        return recipe.stops[stop]
+    }
+
+    /// Switches between a 3 × 3 and 4 × 4 grid, keeping the current bends and chosen colors.
+    func setMeshSize(_ size: Int) {
+        let size = MeshGrid.clampedSize(size)
+        guard size != meshSize else { return }
+        var updated = recipe
+        updated.meshVertices = MeshGrid.resampled(meshVertices, from: meshSize, to: size)
+        updated.meshSize = size
+        recipe = updated
+    }
+
+    /// Moves a mesh point. Corners stay put and edge points slide along their edge.
+    func moveMeshVertex(_ index: Int, x: Double, y: Double) {
+        var vertices = meshVertices
+        guard vertices.indices.contains(index) else { return }
+        let position = MeshGrid.constrained(index, x: x, y: y, in: vertices, size: meshSize)
+        vertices[index].x = position.x
+        vertices[index].y = position.y
+        recipe.meshVertices = vertices
+    }
+
+    /// Pins a mesh point to one tray color; nil returns it to the tray order.
+    func setMeshVertexColor(_ index: Int, stopID: UUID?) {
+        var vertices = meshVertices
+        guard vertices.indices.contains(index) else { return }
+        vertices[index].stopID = stopID
+        recipe.meshVertices = vertices
+    }
+
+    /// Deals the tray colors across the mesh points in a new arrangement, keeping every color's share
+    /// even. Points get pinned colors, which clicking a point can still change.
+    func shuffleMeshColors() {
+        guard !recipe.stops.isEmpty else { return }
+        let size = meshSize
+        let current = (0..<size * size).map { meshStop(at: $0)?.id }
+        var shares = (0..<size * size).map { recipe.stops[MeshGrid.automaticStopIndex(at: $0, size: size, count: recipe.stops.count)].id }
+        // Reshuffle until something actually moves (a one-color tray has nothing to move).
+        for _ in 0..<8 where Set(shares).count > 1 {
+            shares.shuffle()
+            if shares != current { break }
+        }
+        var vertices = meshVertices
+        for index in vertices.indices { vertices[index].stopID = shares[index] }
+        recipe.meshVertices = vertices
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+    }
+
+    /// Puts every mesh point back on an even grid, keeping the colors they show.
+    func straightenMesh() {
+        recipe.meshVertices = Self.straightened(recipe)
+    }
+
+    private static func straightened(_ recipe: GradientRecipe) -> [MeshVertex] {
+        let size = MeshGrid.clampedSize(recipe.meshSize)
+        return zip(MeshGrid.regular(size: size), MeshGrid.vertices(for: recipe)).map { even, vertex in
+            MeshVertex(x: even.x, y: even.y, stopID: vertex.stopID)
+        }
+    }
 
     /// Reveals all canvas points while the tray is hovered, with a short grace period on exit so the
     /// points don't flicker when the pointer moves up to the canvas to grab one.
@@ -743,6 +814,7 @@ import UniformTypeIdentifiers
         updated.easing = defaults.easing
         updated.colorArc = updated.mode == .linear ? 0 : defaults.colorArc
         updated.centerX = defaults.centerX; updated.centerY = defaults.centerY
+        updated.meshVertices = Self.straightened(updated)
         updated.seed = defaults.seed
         animateNextPreview = true
         recipe = updated
@@ -805,12 +877,28 @@ import UniformTypeIdentifiers
         var recipe = source
         recipe.seed = UInt64.random(in: 1...UInt64.max)
         switch recipe.mode {
-        case .organic, .mesh:
+        case .organic:
             for index in recipe.stops.indices {
                 recipe.stops[index].x = Double.random(in: 0.05...0.95)
                 recipe.stops[index].y = Double.random(in: 0.05...0.95)
             }
             recipe.swirl = Bool.random() ? Double.random(in: 0.2...0.8) : 0
+        case .mesh:
+            // Bend the grid: nudge every point within its cell, keeping its color.
+            let size = MeshGrid.clampedSize(recipe.meshSize)
+            let cell = 1 / Double(size - 1)
+            var vertices = straightened(recipe)
+            for index in vertices.indices {
+                let position = MeshGrid.constrained(
+                    index,
+                    x: vertices[index].x + Double.random(in: -0.42...0.42) * cell,
+                    y: vertices[index].y + Double.random(in: -0.42...0.42) * cell,
+                    in: vertices, size: size
+                )
+                vertices[index].x = position.x
+                vertices[index].y = position.y
+            }
+            recipe.meshVertices = vertices
         case .tonal:
             recipe.flow = Double.random(in: 0.25...0.95)
             recipe.softness = Double.random(in: 0.2...0.9)
@@ -1060,6 +1148,9 @@ import UniformTypeIdentifiers
               candidate.fadeWidth.isFinite, (0.05...6).contains(candidate.fadeWidth),
               [candidate.startX, candidate.startY, candidate.endX, candidate.endY].allSatisfy({ $0.isFinite && (-3...3).contains($0) }),
               candidate.grainSize.isFinite, (0.25...10).contains(candidate.grainSize),
+              MeshGrid.sizes.contains(candidate.meshSize),
+              candidate.meshVertices.isEmpty || candidate.meshVertices.count == candidate.meshSize * candidate.meshSize,
+              candidate.meshVertices.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }),
               candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && Hex.normalized($0.hex) != nil })
         else { throw CocoaError(.fileReadCorruptFile) }
         return candidate

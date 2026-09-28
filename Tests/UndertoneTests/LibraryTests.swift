@@ -321,4 +321,93 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.colorLibraries.first?.colors.first, blue)
         XCTAssertEqual(model.recipe, tidal.recipe)
     }
+
+    @MainActor func testOldMeshRecipesOpenAsTheNearestGrid() throws {
+        let json = """
+        {"mode": "mesh", "version": 3, "stops": [
+            {"id": "00000000-0000-0000-0000-000000000001", "hex": "012169", "x": 0.1, "y": 0.1},
+            {"id": "00000000-0000-0000-0000-000000000002", "hex": "F0F5FB", "x": 0.9, "y": 0.9}
+        ]}
+        """
+        let recipe = try StudioModel.validatedRecipe(from: Data(json.utf8))
+        XCTAssertEqual(recipe.meshVertices.count, 9)
+        XCTAssertEqual(recipe.meshVertices.first?.stopID, recipe.stops[0].id)
+        XCTAssertEqual(recipe.meshVertices.last?.stopID, recipe.stops[1].id)
+        XCTAssertEqual(recipe.version, GradientRecipe.currentVersion)
+
+        let reencoded = try JSONDecoder().decode(GradientRecipe.self, from: JSONEncoder().encode(recipe))
+        XCTAssertEqual(reencoded, recipe)
+    }
+
+    @MainActor func testMeshEditingKeepsTheBorderOnTheCanvas() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.setMode(.mesh)
+
+        model.moveMeshVertex(0, x: 0.4, y: 0.3)
+        XCTAssertEqual(model.meshVertices[0], MeshVertex(x: 0, y: 0), "Corners stay put")
+        model.moveMeshVertex(1, x: 0.7, y: 0.4)
+        XCTAssertEqual(model.meshVertices[1].y, 0, "Top edge points slide along the edge")
+        XCTAssertEqual(model.meshVertices[1].x, 0.7)
+        model.moveMeshVertex(4, x: 0.62, y: 0.2)
+        XCTAssertEqual(model.meshVertices[4].x, 0.62)
+
+        let stop = try XCTUnwrap(model.recipe.stops.last)
+        model.setMeshVertexColor(4, stopID: stop.id)
+        XCTAssertEqual(model.meshStop(at: 4)?.id, stop.id)
+
+        model.setMeshSize(4)
+        XCTAssertEqual(model.meshVertices.count, 16)
+        XCTAssertEqual(model.meshVertices[0], MeshVertex(x: 0, y: 0))
+        XCTAssertEqual(model.meshVertices[15].x, 1)
+        model.moveMeshVertex(5, x: 0.95, y: 0.95)
+        XCTAssertLessThan(model.meshVertices[5].x, model.meshVertices[6].x, "Points stay between their neighbors, so the grid can't fold")
+        XCTAssertLessThan(model.meshVertices[5].y, model.meshVertices[9].y)
+
+        model.straightenMesh()
+        XCTAssertEqual(model.meshVertices.map(\.x), MeshGrid.regular(size: 4).map(\.x))
+        for _ in 0..<20 {
+            let random = StudioModel.randomized(model.recipe)
+            let vertices = MeshGrid.vertices(for: random)
+            XCTAssertTrue(vertices[0 ..< 4].allSatisfy { $0.y == 0 } && vertices[12 ..< 16].allSatisfy { $0.y == 1 })
+        }
+    }
+
+    /// Any number of tray colors fills either grid evenly, with each color in one connected patch.
+    func testAutomaticMeshFillIsEvenAndConnected() {
+        for size in MeshGrid.sizes {
+            let points = size * size
+            for count in 1...StudioModel.maximumStops {
+                let colors = (0..<points).map { MeshGrid.automaticStopIndex(at: $0, size: size, count: count) }
+                let shares = (0..<count).map { color in colors.filter { $0 == color }.count }
+                XCTAssertEqual(Set(colors).count, count, "\(count) colors on \(size)×\(size)")
+                XCTAssertLessThanOrEqual(shares.max()! - shares.min()!, 1)
+                for color in 0..<count {
+                    let members = (0..<points).filter { colors[$0] == color }
+                    var reached: Set<Int> = [members[0]], frontier = [members[0]]
+                    while let point = frontier.popLast() {
+                        for other in members where !reached.contains(other)
+                            && abs(other / size - point / size) <= 1 && abs(other % size - point % size) <= 1 {
+                            reached.insert(other); frontier.append(other)
+                        }
+                    }
+                    XCTAssertEqual(reached.count, members.count, "Color \(color) of \(count) on \(size)×\(size) is one patch")
+                }
+            }
+        }
+    }
+
+    @MainActor func testShuffleMeshColorsKeepsEachColorsShare() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.setMode(.mesh)
+        let before = (0..<9).compactMap { model.meshStop(at: $0)?.id }
+        model.shuffleMeshColors()
+        let after = (0..<9).compactMap { model.meshStop(at: $0)?.id }
+        XCTAssertEqual(before.sorted { $0.uuidString < $1.uuidString }, after.sorted { $0.uuidString < $1.uuidString })
+        XCTAssertNotEqual(before, after)
+        XCTAssertTrue(model.meshVertices.allSatisfy { $0.stopID != nil })
+    }
 }
