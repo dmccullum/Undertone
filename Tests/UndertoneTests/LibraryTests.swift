@@ -18,7 +18,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(library.colors.map(\.hex), ["012169"])
         XCTAssertEqual(library.colors.first?.name, "Custom Blue")
         XCTAssertEqual(LibraryColor.coldwellBanker.count, 12)
-        XCTAssertTrue(reloaded.colorLibraries.first?.isBuiltIn == true)
+        XCTAssertEqual(reloaded.colorLibraries.first?.id, ColorLibrary.coldwellBankerID)
     }
 
     @MainActor func testLibraryClicksAddTheSameColorAgain() {
@@ -33,32 +33,16 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.recipe.stops.last?.hex, blue.hex)
     }
 
-    @MainActor func testEditingAnEarlierGradientMakesACopy() throws {
+    @MainActor func testEditsSaveIntoTheOpenGradient() throws {
         let folder = temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         let original = try XCTUnwrap(model.currentGradient)
 
-        model.recipe.flow = 0.9
         model.recipe.softness = 0.2
-        XCTAssertNotEqual(model.currentGradientID, original.id)
-        XCTAssertEqual(model.currentName, "\(original.name) 2")
-        XCTAssertEqual(model.gradients.filter { $0.name.hasPrefix(original.name) }.count, 2)
-
         model.saveNow()
-        XCTAssertEqual(model.gradients.first { $0.id == original.id }?.recipe, original.recipe)
+        XCTAssertEqual(model.currentGradientID, original.id)
         XCTAssertEqual(model.currentGradient?.recipe.softness, 0.2)
-    }
-
-    @MainActor func testReplaceOverwritesASavedGradient() throws {
-        let folder = temporaryFolder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let model = StudioModel(directory: folder)
-        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
-        model.replaceGradient(id: tidal.id)
-        let replaced = try XCTUnwrap(model.gradients.first { $0.id == tidal.id })
-        XCTAssertEqual(replaced.name, "Tidal")
-        XCTAssertEqual(replaced.recipe, model.recipe)
     }
 
     @MainActor func testReorderAndDuplicateColors() throws {
@@ -114,6 +98,8 @@ final class LibraryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         let id = model.newGradient()
+        XCTAssertTrue(model.recipe.stops.isEmpty)
+        model.addColor(hex: "012169")
         model.recipe.mode = .radial
         model.recipe.centerX = 0.2
         model.recipe.stops[0].x = 0.11
