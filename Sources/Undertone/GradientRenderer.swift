@@ -2,17 +2,6 @@ import CoreGraphics
 import Dispatch
 import Foundation
 
-final class RenderCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancelled = false
-    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
-    var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return cancelled
-    }
-}
-
 enum GradientRenderer {
     enum RenderError: Error, Equatable {
         case invalidDimensions(width: Int, height: Int)
@@ -24,10 +13,11 @@ enum GradientRenderer {
     private static let maximumDimension = 8_192
     private static let maximumPixelCount = 33_554_432
     private static let lookupTableSize = 2_048
-    static let grainReferenceMaximumDimension = 900
+    /// Grain is sized relative to this reference (the preview's longest side), so it looks identical
+    /// in the preview and the full-resolution export.
+    private static let grainReferenceSize = 1_280.0
 
-    static func render(_ recipe: GradientRecipe, width: Int, height: Int, cancellation: RenderCancellation? = nil) throws -> CGImage {
-        if cancellation?.isCancelled == true { throw CancellationError() }
+    static func render(_ recipe: GradientRecipe, width: Int, height: Int) throws -> CGImage {
         guard width > 0, height > 0, width <= maximumDimension, height <= maximumDimension else {
             throw RenderError.invalidDimensions(width: width, height: height)
         }
@@ -37,79 +27,70 @@ enum GradientRenderer {
         }
         let suppliedStops = recipe.stops.map(RenderStop.init)
         let hasColors = !suppliedStops.isEmpty
-        let stops = recipe.mode == .magicSingle && hasColors
+        let stops = recipe.mode == .tonal && hasColors
             ? magicSingleStops(base: suppliedStops[0], variation: recipe.colorArc, seed: recipe.seed)
             : suppliedStops
         let flow = clamp(recipe.flow, lower: 0, upper: 1)
         let softness = clamp(recipe.softness, lower: 0, upper: 1)
-        let grain = recipe.isTextureEnabled ? clamp(recipe.grain, lower: 0, upper: 1) : 0
+        let grain = recipe.textureEnabled ? clamp(recipe.grain, lower: 0, upper: 1) : 0
         let grainCellSize = Int(clamp(recipe.grainSize, lower: 1, upper: 128).rounded())
-        // Keep grain at the same apparent size in the preview and in a scaled export.
-        // Otherwise one-pixel export noise disappears when the image is viewed smaller.
-        let grainScale = min(1, Double(grainReferenceMaximumDimension) / Double(max(recipe.width, recipe.height)))
-        let grainWidth = max(1, Int(Double(recipe.width) * grainScale))
-        let grainHeight = max(1, Int(Double(recipe.height) * grainScale))
-        let grainColumns = (0..<width).map { min(grainWidth - 1, Int(Double($0) * Double(grainWidth) / Double(width))) }
-        let grainRows = (0..<height).map { min(grainHeight - 1, Int(Double($0) * Double(grainHeight) / Double(height))) }
+        // Grain is sampled in a fixed reference space so it's the same fraction of the image at any
+        // resolution — the full-size export shows the same grain the 1280px preview does.
+        let grainReferenceScale = grainReferenceSize / Double(max(width, height, 1))
         let angle = recipe.angleDegrees * .pi / 180
         let axisX = cos(angle), axisY = sin(angle)
         let crossX = -axisY, crossY = axisX
         let position = clamp(recipe.gradientPosition, lower: 0, upper: 1)
-        let fadeWidth = clamp(recipe.fadeWidth, lower: 0.05, upper: 2)
+        let fadeWidth = clamp(recipe.fadeWidth, lower: 0.05, upper: 6)
+        // Linear runs from start to end; project each pixel onto that line for its palette position.
+        let lineStartX = recipe.startX, lineStartY = recipe.startY
+        let lineDX = recipe.endX - lineStartX, lineDY = recipe.endY - lineStartY
+        let lineLengthSquared = max(1e-9, lineDX * lineDX + lineDY * lineDY)
         let centerX = clamp(recipe.centerX, lower: -1, upper: 2)
         let centerY = clamp(recipe.centerY, lower: -1, upper: 2)
-        let softnessCore = 0.0025 + softness * softness * 0.30
+        // Swirl: a vortex domain-warp for Organic/Tonal. Strength eases in; the seed picks the center
+        // and spin direction, so Shuffle Mesh reshuffles the swirl too.
+        let swirlAmount = clamp(recipe.swirl, lower: 0, upper: 1)
+        // The twist compresses the field where it rotates hardest, which reads as harder edges; widen
+        // the blend core with swirl so the softness setting keeps its dreaminess.
+        // Doubled softness impact: the old 100% now lands around 50% of the slider, with more headroom above.
+        let softnessCore = (0.0025 + softness * softness * 1.20) * (1 + swirlAmount * 6.0)
         let phase = Double(recipe.seed % 10_000) / 10_000 * .pi * 2
-        let usesLegacyLinearGeometry = recipe.linearStartX == 0 && recipe.linearStartY == 0.5 &&
-            recipe.linearEndX == 1 && recipe.linearEndY == 0.5 &&
-            (recipe.angleDegrees != 0 || recipe.gradientPosition != 0.5)
-        let legacyExtent = 0.5 / max(abs(axisX), abs(axisY), 0.0001)
-        let linearStartX = usesLegacyLinearGeometry ? 0.5 - axisX * legacyExtent : clamp(recipe.linearStartX, lower: -1, upper: 2)
-        let linearStartY = usesLegacyLinearGeometry ? 0.5 - axisY * legacyExtent : clamp(recipe.linearStartY, lower: -1, upper: 2)
-        let linearEndX = usesLegacyLinearGeometry ? 0.5 + axisX * legacyExtent : clamp(recipe.linearEndX, lower: -1, upper: 2)
-        let linearEndY = usesLegacyLinearGeometry ? 0.5 + axisY * legacyExtent : clamp(recipe.linearEndY, lower: -1, upper: 2)
-        let linearDeltaX = linearEndX - linearStartX
-        let linearDeltaY = linearEndY - linearStartY
-        let linearLengthSquared = max(0.0001, linearDeltaX * linearDeltaX + linearDeltaY * linearDeltaY)
 
+        let swirlStrength = swirlAmount * swirlAmount * 8.0
+        let swirlSign = (recipe.seed & 2) == 0 ? 1.0 : -1.0
+        let swirlCenterX = 0.5 + (seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
+        let swirlCenterY = 0.5 + (seedUnit(recipe.seed, salt: 92) - 0.5) * 0.5
+
+        // Mesh: soft color cells from the positioned points — flatter, more defined regions than
+        // Organic's gauzy metaballs. Softness sets how soft the cell borders are.
+        let meshTemperature = 0.035 + softness * softness * 0.30 * (1 + swirlAmount * 3.0)
         let emptyColor = RGB(red: 0.13, green: 0.14, blue: 0.17)
-        let palette = hasColors
+        let usesPalette = recipe.mode == .linear || recipe.mode == .aurora || recipe.mode == .radial
+        let palette = hasColors && usesPalette
             ? makePalette(
                 stops: stops,
-                magic: recipe.mode == .magicLinear || recipe.mode == .aurora,
-                soft: recipe.mode == .softLinear,
+                magic: recipe.mode == .linear || recipe.mode == .aurora,
+                smooth: recipe.mode == .linear && recipe.smoothBlend,
                 easing: recipe.easing,
-                softness: recipe.softness,
                 colorArc: recipe.colorArc,
                 seed: recipe.seed
             )
             : [emptyColor]
-        // Magic Single's seed controls the underlying flow field as well as its
-        // generated tones and stop locations, so a new seed makes a genuinely new
-        // composition rather than a near-identical recolor.
-        let magicSingle = recipe.mode == .magicSingle
-        let warpStrength = flow * (magicSingle ? 0.24 : 0.14)
-        let warpFrequencyA = magicSingle ? 1.25 + seedUnit(recipe.seed, salt: 41) * 2.1 : 1.73
-        let warpFrequencyB = magicSingle ? 3.0 + seedUnit(recipe.seed, salt: 43) * 3.3 : 3.91
-        let warpPhaseA = magicSingle ? seedUnit(recipe.seed, salt: 47) * .pi * 2 : 0.11 * .pi * 2
-        let warpPhaseB = magicSingle ? seedUnit(recipe.seed, salt: 53) * .pi * 2 : 0.63 * .pi * 2
+        // The seed shifts the flow field's phases, so Organic's mesh can be reshuffled without
+        // moving any color.
         let xWarp = (0..<height).map { row -> Double in
             let y = normalizedCoordinate(row, count: height)
-            return warpStrength * (sin(y * warpFrequencyA * .pi * 2 + warpPhaseA) * 0.68 + sin(y * warpFrequencyB * .pi * 2 + warpPhaseB) * 0.32)
+            return flow * 0.14 * (sin((y * 1.73 + 0.11) * .pi * 2 + phase) * 0.68 + sin((y * 3.91 + 0.63) * .pi * 2 + phase * 1.7) * 0.32)
         }
         let yWarp = (0..<width).map { column -> Double in
             let x = normalizedCoordinate(column, count: width)
-            let firstFrequency = magicSingle ? warpFrequencyA + 0.28 : 1.37
-            let secondFrequency = magicSingle ? warpFrequencyB + 0.41 : 3.23
-            let firstPhase = magicSingle ? warpPhaseB : 0.47 * .pi * 2
-            let secondPhase = magicSingle ? warpPhaseA : 0.19 * .pi * 2
-            return warpStrength * (sin(x * firstFrequency * .pi * 2 + firstPhase) * 0.72 + sin(x * secondFrequency * .pi * 2 + secondPhase) * 0.28)
+            return flow * 0.14 * (sin((x * 1.37 + 0.47) * .pi * 2 + phase * 1.3) * 0.72 + sin((x * 3.23 + 0.19) * .pi * 2 + phase * 0.6) * 0.28)
         }
 
         let byteCount = pixelCount * 4
         let storage = PixelStorage(byteCount: byteCount)
         DispatchQueue.concurrentPerform(iterations: height) { row in
-            guard cancellation?.isCancelled != true else { return }
             let y = normalizedCoordinate(row, count: height)
             let rowOffset = row * width * 4
             for column in 0..<width {
@@ -118,11 +99,24 @@ enum GradientRenderer {
                 if !hasColors {
                     color = emptyColor
                 } else { switch recipe.mode {
-                case .organic, .magicSingle:
-                    color = organicColor(stops: stops, x: x + xWarp[row], y: y + yWarp[column], softnessCore: softnessCore)
-                case .linear, .softLinear, .magicLinear:
-                    let projected = ((x - linearStartX) * linearDeltaX + (y - linearStartY) * linearDeltaY) / linearLengthSquared
-                    color = paletteColor(palette, at: 0.5 + (projected - 0.5) / fadeWidth)
+                case .organic, .tonal, .mesh:
+                    var sx = x + xWarp[row]
+                    var sy = y + yWarp[column]
+                    if swirlStrength > 0 {
+                        let dx = sx - swirlCenterX, dy = sy - swirlCenterY
+                        let twist = swirlStrength * swirlSign * exp(-(dx * dx + dy * dy) * 3.2)
+                        let cosT = cos(twist), sinT = sin(twist)
+                        sx = swirlCenterX + dx * cosT - dy * sinT
+                        sy = swirlCenterY + dx * sinT + dy * cosT
+                    }
+                    if recipe.mode == .mesh {
+                        color = meshColor(stops: stops, x: sx, y: sy, temperature: meshTemperature)
+                    } else {
+                        color = organicColor(stops: stops, x: sx, y: sy, softnessCore: softnessCore)
+                    }
+                case .linear:
+                    let projection = ((x - lineStartX) * lineDX + (y - lineStartY) * lineDY) / lineLengthSquared
+                    color = paletteColor(palette, at: projection)
                 case .radial:
                     let dx = x - centerX, dy = y - centerY
                     color = paletteColor(palette, at: sqrt(dx * dx + dy * dy) / fadeWidth)
@@ -132,7 +126,7 @@ enum GradientRenderer {
                     let ribbon = sin(cross * .pi * 2.4 + phase) * 0.18 + sin(cross * .pi * 5.2 - phase * 0.7) * 0.055
                     color = paletteColor(palette, at: 0.5 + (axis + ribbon * flow - position) / fadeWidth)
                 } }
-                let noise = grain == 0 ? 0 : grainNoise(x: grainColumns[column], y: grainRows[row], cellSize: grainCellSize, seed: recipe.seed) * grain * 0.105
+                let noise = grain == 0 ? 0 : grainNoise(x: Int(Double(column) * grainReferenceScale), y: Int(Double(row) * grainReferenceScale), cellSize: grainCellSize, seed: recipe.seed) * grain * 0.105
                 let offset = rowOffset + column * 4
                 storage.pointer[offset] = byte(color.red + noise)
                 storage.pointer[offset + 1] = byte(color.green + noise)
@@ -141,7 +135,6 @@ enum GradientRenderer {
             }
         }
 
-        if cancellation?.isCancelled == true { throw CancellationError() }
         let data = Data(bytes: storage.pointer, count: byteCount)
         guard let provider = CGDataProvider(data: data as CFData),
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -159,7 +152,7 @@ enum GradientRenderer {
         for stop in stops {
             let dx = x - stop.x, dy = y - stop.y
             let distance = dx * dx + dy * dy + softnessCore
-            let weight = 1 / (distance * distance)
+            let weight = stop.weight / (distance * distance)
             weightTotal += weight
             red += stop.color.red * weight
             green += stop.color.green * weight
@@ -168,10 +161,27 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    private static func makePalette(stops: [RenderStop], magic: Bool, soft: Bool, easing: Double, softness: Double, colorArc: Double, seed: UInt64) -> [RGB] {
+    /// A positional mesh: soft color cells around each point (a smooth Voronoi). Flatter, more
+    /// defined regions than Organic's gauzy metaballs; `temperature` sets how soft the borders are.
+    private static func meshColor(stops: [RenderStop], x: Double, y: Double, temperature: Double) -> RGB {
+        var weightTotal = 0.0, red = 0.0, green = 0.0, blue = 0.0
+        for stop in stops {
+            let dx = x - stop.x, dy = y - stop.y
+            let weight = stop.weight * exp(-sqrt(dx * dx + dy * dy) / temperature)
+            weightTotal += weight
+            red += stop.color.red * weight
+            green += stop.color.green * weight
+            blue += stop.color.blue * weight
+        }
+        guard weightTotal > 1e-9 else { return stops[0].color }
+        return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
+    }
+
+    private static func makePalette(stops: [RenderStop], magic: Bool, smooth: Bool = false, easing: Double, colorArc: Double, seed: UInt64) -> [RGB] {
         let colors = stops.map(\.color)
         guard let first = colors.first else { return [] }
         guard colors.count > 1 else { return Array(repeating: first, count: lookupTableSize) }
+        if smooth { return smoothPalette(colors) }
         let ease = clamp(easing, lower: 0, upper: 1)
         let arc = clamp(colorArc, lower: 0, upper: 1)
         return (0..<lookupTableSize).map { index in
@@ -180,16 +190,10 @@ enum GradientRenderer {
             let segment = min(colors.count - 2, Int(scaled))
             let raw = scaled - Double(segment)
             let smooth = raw * raw * (3 - 2 * raw)
-            let smoother = raw * raw * raw * (raw * (raw * 6 - 15) + 10)
-            let amount = soft
-                ? interpolate(raw, smoother, by: clamp(softness, lower: 0, upper: 1))
-                : interpolate(raw, smooth, by: ease)
+            let amount = interpolate(raw, smooth, by: ease)
             if magic {
                 let sign = ((UInt64(segment) &+ seed) & 1) == 0 ? 1.0 : -1.0
                 return magicInterpolate(colors[segment], colors[segment + 1], by: amount, arc: arc * sign)
-            }
-            if soft {
-                return magicInterpolate(colors[segment], colors[segment + 1], by: amount, arc: 0)
             }
             return RGB(
                 red: interpolate(colors[segment].red, colors[segment + 1].red, by: amount),
@@ -197,6 +201,32 @@ enum GradientRenderer {
                 blue: interpolate(colors[segment].blue, colors[segment + 1].blue, by: amount)
             )
         }
+    }
+
+    /// A rounded blend that runs a Catmull-Rom spline through the colors in OKLab, so transitions
+    /// have no sharp corners at the stops — softer than straight segment-to-segment interpolation.
+    private static func smoothPalette(_ colors: [RGB]) -> [RGB] {
+        let labs = colors.map(OKLab.init)
+        let count = labs.count
+        return (0..<lookupTableSize).map { index in
+            let scaled = Double(index) / Double(lookupTableSize - 1) * Double(count - 1)
+            let segment = min(count - 2, Int(scaled))
+            let u = scaled - Double(segment)
+            let c0 = labs[max(0, segment - 1)]
+            let c1 = labs[segment]
+            let c2 = labs[segment + 1]
+            let c3 = labs[min(count - 1, segment + 2)]
+            return OKLab(
+                lightness: catmullRom(c0.lightness, c1.lightness, c2.lightness, c3.lightness, u),
+                a: catmullRom(c0.a, c1.a, c2.a, c3.a, u),
+                b: catmullRom(c0.b, c1.b, c2.b, c3.b, u)
+            ).rgb
+        }
+    }
+
+    private static func catmullRom(_ p0: Double, _ p1: Double, _ p2: Double, _ p3: Double, _ u: Double) -> Double {
+        let u2 = u * u, u3 = u2 * u
+        return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3)
     }
 
     private static func paletteColor(_ palette: [RGB], at amount: Double) -> RGB {
@@ -317,13 +347,15 @@ enum GradientRenderer {
         let color: RGB
         let x: Double
         let y: Double
+        let weight: Double
         init(_ stop: ColorStop) {
             let value = UInt32(stop.hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16) ?? 0
             color = RGB(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
             x = GradientRenderer.clamp(stop.x, lower: 0, upper: 1)
             y = GradientRenderer.clamp(stop.y, lower: 0, upper: 1)
+            weight = GradientRenderer.clamp(stop.weight, lower: 0.05, upper: 4)
         }
-        init(color: RGB, x: Double, y: Double) { self.color = color; self.x = x; self.y = y }
+        init(color: RGB, x: Double, y: Double, weight: Double = 1) { self.color = color; self.x = x; self.y = y; self.weight = weight }
     }
 
     private final class PixelStorage: @unchecked Sendable {

@@ -6,19 +6,21 @@ Working name: Undertone. SwiftUI interface, AppKit clipboard and native panels, 
 
 ## Interaction design
 
-Standard resizable Mac window with system typography, toolbar, keyboard shortcuts and three columns:
+Standard resizable Mac window with system typography, toolbar, keyboard shortcuts and three parts:
 
 ```
-┌ Palettes ─────────┬──────────── Canvas ───────────────┬ Inspector ───────┐
-│ Saved brands     │          [flowing artwork]        │ Color stops     │
-│ Palette swatches │       movable color points        │ Type controls   │
-│ Save palette     │                                   │ Grain / size    │
-│                  │                                   │ Export size     │
-└──────────────────┴───────────────────────────────────┴─────────────────┘
-                 Toolbar: Randomize · Copy Image · Export
+┌ Gradients | Colors ┬──────── Name ✦ ──── 2160 × 2880 ┬ Inspector ────────┐
+│ thumbnail list     │                                  │ Style tiles       │
+│   or               │        [flowing artwork]         │ Style controls    │
+│ swatch grid        │     handles appear on hover      │ Texture           │
+│                    │  ( ● ● ● ● + │ × )  color tray   │                   │
+└────────────────────┴──────────────────────────────────┴───────────────────┘
+          Toolbar: Randomize · Copy Image · Export Image · Inspector
 ```
 
-Dragging color points changes Organic compositions. Copy Image writes PNG and TIFF image representations to the system clipboard. Export uses the native save panel with PNG/JPEG choices. Rendering exports off the main thread keeps the UI responsive.
+Two libraries, not three. A collection of named colors covers both brand libraries and small palettes. A gradient is a full recipe (colors, positions, direction, center, sliders, seed and canvas size) with a name, and it autosaves like a note. Names come from the colors through a deterministic word picker, upgraded by Apple's on-device Foundation Models framework where Apple Intelligence is available.
+
+The window takes on the artwork's colors through a blurred copy of the preview behind the canvas and inspector. Style tiles are live renders of the current colors, which the renderer's speed makes cheap. Preview changes from Randomize, style switches, undo and gradient selection crossfade.
 
 ## First development slice
 
@@ -33,7 +35,7 @@ Sol owns the renderer and tests. Terra owns the native interface. The coordinati
 
 - Verify direct drop and paste into Canva in the user's actual browser/app, plus Finder and Preview. AppKit supports standard transfer representations; each destination decides what it accepts.
 - Profile 4K and 8K exports; verify color, file dimensions and grain scaling. Respect explicit memory/dimension caps rather than allowing oversized requests to crash.
-- Add undo/redo, document autosave, favorite compositions, color/position locks, and export history.
+- Undo/redo and library autosave shipped in the redesign. Still open: favorite compositions, color and position locks, export history.
 - Explore Liquid Blobs as the next distinct flowing mode and a richer editable mesh when point topology can be made clear.
 - Improve palette suggestions with perceptual color-space distances and editable brand tolerance; initial suggestions are deterministic related tones, not AI or a guarantee of brand compliance.
 - Add a Metal renderer if measured performance requires it, file promises for delayed drag export, and background pre-rendering of the drag shelf.
