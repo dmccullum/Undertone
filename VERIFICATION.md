@@ -1,5 +1,13 @@
 # First-build verification
 
+## Metal renderer (built and gated, not yet driving the app)
+
+- One compute kernel (`MetalShaders`, compiled at runtime) renders every style from the same `GradientRenderer.Scene` the CPU uses. `renderBytes` produces 8-bit sRGB export pixels; `renderTexture` writes the preview into a drawable. The CPU renderer stays the reference and fallback.
+- Parity gate (`MetalParityTests`): 20 recipes covering every style, grain sizes, swirl, bent 4×4 meshes, no colors and one color. Every channel of every pixel matches within 1/255 (the gate allows 2/255) at 257×343, 640×480, 2160×2880 and 3840×2160; at most 0.0036% of channels differ at all. Run the full sizes with `UNDERTONE_PARITY_FULL=1 swift test -c release --filter MetalParityTests`.
+- Grain now uses a 32-bit hash (lowbias32) sampled on integer cell coordinates so both renderers compute identical noise. Existing gradients keep their grain amount and size, but the grain pattern shifted.
+- Banding: a Coldwell Banker Blue → Midnight ramp with grain off held each 8-bit level for 40–90 px (535 px in a Glow). A triangular ±1/255 dither per channel, independent of the seed, brings the longest flat run under 10 px with no visible noise.
+- Timing on Apple silicon: a full-Retina 1840×2454 preview takes 2.5 ms (Organic), 3.6 ms (Mesh) and under 1 ms for the other styles, scene setup included. The current CPU preview needs 21 ms for Organic at 960×1280.
+
 ## Redesign: gradient library, naming and interface (unverified build)
 
 Written in a cloud container with no Swift toolchain, so this pass has been syntax-checked only. It has not been compiled, tested or run. Before relying on it, run `swift build` and `swift test` on a Mac, then check the app by hand:

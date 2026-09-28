@@ -123,6 +123,9 @@ private struct ArtworkView: View {
     @State private var hovering = false
     @State private var draggingHandle = false
     @State private var snappedKeys: Set<String> = []
+    /// The mesh point whose color popover is open; its handles stay visible meanwhile.
+    @State private var editingVertex: Int?
+    @State private var vertexDragOrigin: CGPoint?
 
     private var ratio: CGFloat { CGFloat(model.recipe.width) / CGFloat(max(model.recipe.height, 1)) }
     private var modeHasHandles: Bool {
@@ -131,7 +134,7 @@ private struct ArtworkView: View {
         case .tonal: false
         }
     }
-    private var showsHandles: Bool { (hovering || draggingHandle || model.pointsRevealed) && modeHasHandles }
+    private var showsHandles: Bool { (hovering || draggingHandle || model.pointsRevealed || editingVertex != nil) && modeHasHandles }
 
     var body: some View {
         GeometryReader { geometry in
@@ -196,7 +199,9 @@ private struct ArtworkView: View {
 
     @ViewBuilder private func handles(in size: CGSize) -> some View {
         switch model.recipe.mode {
-        case .organic, .mesh:
+        case .mesh:
+            meshHandles(in: size)
+        case .organic:
             ForEach(Array(model.recipe.stops.enumerated()), id: \.element.id) { index, stop in
                 PointHandle(color: stop.color, emphasized: stop.id == model.highlightedStopID)
                     .position(x: CGFloat(stop.x) * size.width, y: CGFloat(stop.y) * size.height)
@@ -218,6 +223,68 @@ private struct ArtworkView: View {
         case .tonal:
             EmptyView()
         }
+    }
+
+    /// The mesh grid, drawn along the same curves the renderer bends, with a handle on every point.
+    private func meshHandles(in size: CGSize) -> some View {
+        let vertices = model.meshVertices
+        let gridSize = model.meshSize
+        return ZStack {
+            Path { path in
+                let steps = 40
+                for line in 0..<gridSize {
+                    let fixed = Double(line) / Double(gridSize - 1)
+                    for across in [true, false] {
+                        for step in 0...steps {
+                            let t = Double(step) / Double(steps)
+                            let point = MeshGrid.point(on: vertices, size: gridSize, u: across ? t : fixed, v: across ? fixed : t)
+                            let location = CGPoint(x: point.x * size.width, y: point.y * size.height)
+                            if step == 0 { path.move(to: location) } else { path.addLine(to: location) }
+                        }
+                    }
+                }
+            }
+            .stroke(.white.opacity(0.55), lineWidth: 1)
+            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+            .allowsHitTesting(false)
+
+            ForEach(vertices.indices, id: \.self) { index in
+                let stop = model.meshStop(at: index)
+                PointHandle(color: stop?.color ?? .white, emphasized: stop != nil && stop?.id == model.highlightedStopID)
+                    .position(x: CGFloat(vertices[index].x) * size.width, y: CGFloat(vertices[index].y) * size.height)
+                    .gesture(vertexDrag(index: index, size: size))
+                    .popover(isPresented: Binding(get: { editingVertex == index }, set: { if !$0 { editingVertex = nil } }), arrowEdge: .top) {
+                        MeshVertexEditor(index: index)
+                            .environmentObject(model)
+                    }
+                    .accessibilityLabel("Mesh point \(index + 1)")
+                    .accessibilityAction { editingVertex = index }
+            }
+        }
+    }
+
+    /// Drags a mesh point from where it sits (so a click doesn't nudge it); a click opens its colors.
+    private func vertexDrag(index: Int, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("artworkCanvas"))
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                if vertexDragOrigin == nil {
+                    guard hypot(value.translation.width, value.translation.height) > 3, model.meshVertices.indices.contains(index) else { return }
+                    let vertex = model.meshVertices[index]
+                    vertexDragOrigin = CGPoint(x: vertex.x, y: vertex.y)
+                    draggingHandle = true
+                }
+                guard let origin = vertexDragOrigin else { return }
+                let x = snap(Double(origin.x) + Double(value.translation.width / size.width), key: "mx\(index)")
+                let y = snap(Double(origin.y) + Double(value.translation.height / size.height), key: "my\(index)")
+                model.moveMeshVertex(index, x: x, y: y)
+            }
+            .onEnded { _ in
+                if vertexDragOrigin == nil { editingVertex = index }
+                vertexDragOrigin = nil
+                draggingHandle = false
+                snappedKeys.removeAll()
+            }
     }
 
     /// Two draggable endpoints tinted with the first and last colors, joined by the gradient line.
@@ -395,6 +462,49 @@ private struct PointHandle: View {
             .shadow(color: .black.opacity(emphasized ? 0.45 : 0.35), radius: emphasized ? 5 : 3, y: 1)
             .frame(width: 40, height: 40)
             .contentShape(Circle())
+    }
+}
+
+/// Picks which tray color a mesh point shows.
+private struct MeshVertexEditor: View {
+    @EnvironmentObject private var model: StudioModel
+    let index: Int
+
+    var body: some View {
+        let current = model.meshStop(at: index)
+        let pinned = model.meshVertices.indices.contains(index) && model.meshVertices[index].stopID != nil
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Point Color")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if model.recipe.stops.isEmpty {
+                Text("Add colors to the tray first.")
+                    .font(.callout)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(model.recipe.stops) { stop in
+                        Button { model.setMeshVertexColor(index, stopID: stop.id) } label: {
+                            ColorDot(hex: stop.hex, size: 24)
+                                .overlay {
+                                    if stop.id == current?.id {
+                                        Circle().strokeBorder(Color.accentColor, lineWidth: 2.5).frame(width: 30, height: 30)
+                                    }
+                                }
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .help(model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex))
+                        .accessibilityLabel(model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex))
+                    }
+                }
+                Button("Automatic Color") { model.setMeshVertexColor(index, stopID: nil) }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .disabled(!pinned)
+                    .help("Let the tray order choose this point's color again")
+            }
+        }
+        .padding(14)
     }
 }
 

@@ -18,7 +18,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(library.colors.map(\.hex), ["012169"])
         XCTAssertEqual(library.colors.first?.name, "Custom Blue")
         XCTAssertEqual(LibraryColor.coldwellBanker.count, 12)
-        XCTAssertTrue(reloaded.colorLibraries.first?.isBuiltIn == true)
+        XCTAssertEqual(reloaded.colorLibraries.first?.id, ColorLibrary.coldwellBankerID)
     }
 
     @MainActor func testLibraryClicksAddTheSameColorAgain() {
@@ -33,32 +33,16 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.recipe.stops.last?.hex, blue.hex)
     }
 
-    @MainActor func testEditingAnEarlierGradientMakesACopy() throws {
+    @MainActor func testEditsSaveIntoTheOpenGradient() throws {
         let folder = temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         let original = try XCTUnwrap(model.currentGradient)
 
-        model.recipe.flow = 0.9
         model.recipe.softness = 0.2
-        XCTAssertNotEqual(model.currentGradientID, original.id)
-        XCTAssertEqual(model.currentName, "\(original.name) 2")
-        XCTAssertEqual(model.gradients.filter { $0.name.hasPrefix(original.name) }.count, 2)
-
         model.saveNow()
-        XCTAssertEqual(model.gradients.first { $0.id == original.id }?.recipe, original.recipe)
+        XCTAssertEqual(model.currentGradientID, original.id)
         XCTAssertEqual(model.currentGradient?.recipe.softness, 0.2)
-    }
-
-    @MainActor func testReplaceOverwritesASavedGradient() throws {
-        let folder = temporaryFolder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let model = StudioModel(directory: folder)
-        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
-        model.replaceGradient(id: tidal.id)
-        let replaced = try XCTUnwrap(model.gradients.first { $0.id == tidal.id })
-        XCTAssertEqual(replaced.name, "Tidal")
-        XCTAssertEqual(replaced.recipe, model.recipe)
     }
 
     @MainActor func testReorderAndDuplicateColors() throws {
@@ -114,6 +98,8 @@ final class LibraryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         let id = model.newGradient()
+        XCTAssertTrue(model.recipe.stops.isEmpty)
+        model.addColor(hex: "012169")
         model.recipe.mode = .radial
         model.recipe.centerX = 0.2
         model.recipe.stops[0].x = 0.11
@@ -210,5 +196,218 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(undoManager.canRedo)
         undoManager.redo()
         XCTAssertEqual(model.recipe.flow, 0.95)
+    }
+
+    /// A model wired to a manual-grouping undo manager, as in the window but one step per `step`.
+    @MainActor private func undoableModel(in folder: URL) -> (StudioModel, UndoManager) {
+        let model = StudioModel(directory: folder)
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false
+        model.undoManager = undoManager
+        return (model, undoManager)
+    }
+
+    private func step(_ undoManager: UndoManager, _ action: () -> Void) {
+        undoManager.beginUndoGrouping()
+        action()
+        undoManager.endUndoGrouping()
+    }
+
+    @MainActor func testUndoRestoresColorEdits() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let libraryID = ColorLibrary.coldwellBankerID
+        func colors() -> [LibraryColor] { model.colorLibraries.first { $0.id == libraryID }?.colors ?? [] }
+        let original = colors()
+
+        step(undoManager) { model.saveColor(name: "Harbor", hex: "2A6F97", libraryID: libraryID) }
+        XCTAssertEqual(undoManager.undoActionName, "Add Color")
+        let added = try XCTUnwrap(colors().last)
+        XCTAssertEqual(added.name, "Harbor")
+
+        step(undoManager) { model.updateLibraryColor(added.id, in: libraryID, name: "Harbor", hex: "1F5673") }
+        XCTAssertEqual(undoManager.undoActionName, "Edit Color")
+        step(undoManager) { model.updateLibraryColor(added.id, in: libraryID, name: "Deep Harbor", hex: "1F5673") }
+        XCTAssertEqual(undoManager.undoActionName, "Rename Color")
+        step(undoManager) { model.deleteLibraryColor(original[0].id, from: libraryID) }
+        XCTAssertEqual(undoManager.undoActionName, "Delete Color")
+        XCTAssertFalse(colors().contains { $0.id == original[0].id })
+
+        undoManager.undo()
+        XCTAssertEqual(colors().first, original[0], "The deleted color returns to its place")
+        undoManager.undo()
+        XCTAssertEqual(colors().last?.name, "Harbor")
+        undoManager.undo()
+        XCTAssertEqual(colors().last?.hex, "2A6F97")
+        undoManager.undo()
+        XCTAssertEqual(colors(), original)
+
+        undoManager.redo()
+        XCTAssertEqual(colors().last?.name, "Harbor")
+        XCTAssertEqual(undoManager.undoActionName, "Add Color")
+        XCTAssertEqual(undoManager.redoActionName, "Edit Color")
+    }
+
+    @MainActor func testUndoRestoresCollections() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let original = model.colorLibraries
+
+        var createdID: UUID?
+        step(undoManager) { createdID = model.createColorLibrary(name: "Coastal") }
+        XCTAssertEqual(undoManager.undoActionName, "New Collection")
+        let id = try XCTUnwrap(createdID)
+        step(undoManager) { model.renameColorLibrary(id: id, to: "Shoreline") }
+        XCTAssertEqual(undoManager.undoActionName, "Rename Collection")
+        let data = try model.encodedColorLibrary(id: id)
+        var importedID: UUID?
+        step(undoManager) { importedID = try? model.importColorLibrary(data: data) }
+        XCTAssertEqual(undoManager.undoActionName, "Import Collection")
+        XCTAssertNotNil(importedID)
+        step(undoManager) { model.deleteColorLibrary(id: ColorLibrary.coldwellBankerID) }
+        XCTAssertEqual(undoManager.undoActionName, "Delete Collection")
+
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first?.id, ColorLibrary.coldwellBankerID)
+        XCTAssertEqual(StudioModel(directory: folder).colorLibraries.first?.id, ColorLibrary.coldwellBankerID, "Undo is saved")
+        undoManager.undo()
+        XCTAssertFalse(model.colorLibraries.contains { $0.id == importedID })
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first { $0.id == id }?.name, "Coastal")
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries, original)
+
+        undoManager.redo()
+        undoManager.redo()
+        XCTAssertEqual(model.colorLibraries.first { $0.id == id }?.name, "Shoreline")
+    }
+
+    @MainActor func testUndoRestoresGradientName() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        model.newGradient()
+        let automatic = model.currentName
+
+        step(undoManager) { model.renameCurrentGradient("Listing Hero") }
+        XCTAssertEqual(undoManager.undoActionName, "Rename Gradient")
+        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
+        step(undoManager) { model.renameGradient(id: tidal.id, to: "Tidal Pool") }
+
+        undoManager.undo()
+        XCTAssertEqual(model.gradients.first { $0.id == tidal.id }?.name, "Tidal")
+        undoManager.undo()
+        XCTAssertEqual(model.currentName, automatic)
+        XCTAssertEqual(model.currentGradient?.hasCustomName, false, "The name follows the colors again")
+        undoManager.redo()
+        XCTAssertEqual(model.currentName, "Listing Hero")
+    }
+
+    @MainActor func testOpeningAnotherGradientKeepsLibraryUndo() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let blue = LibraryColor.coldwellBanker[0]
+
+        step(undoManager) { model.deleteLibraryColor(blue.id, from: ColorLibrary.coldwellBankerID) }
+        step(undoManager) { model.recipe.flow = 0.91 }
+        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
+        model.selectGradient(id: tidal.id)
+
+        XCTAssertEqual(undoManager.undoActionName, "Delete Color", "Recipe steps are dropped, library steps stay")
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first?.colors.first, blue)
+        XCTAssertEqual(model.recipe, tidal.recipe)
+    }
+
+    @MainActor func testOldMeshRecipesOpenAsTheNearestGrid() throws {
+        let json = """
+        {"mode": "mesh", "version": 3, "stops": [
+            {"id": "00000000-0000-0000-0000-000000000001", "hex": "012169", "x": 0.1, "y": 0.1},
+            {"id": "00000000-0000-0000-0000-000000000002", "hex": "F0F5FB", "x": 0.9, "y": 0.9}
+        ]}
+        """
+        let recipe = try StudioModel.validatedRecipe(from: Data(json.utf8))
+        XCTAssertEqual(recipe.meshVertices.count, 9)
+        XCTAssertEqual(recipe.meshVertices.first?.stopID, recipe.stops[0].id)
+        XCTAssertEqual(recipe.meshVertices.last?.stopID, recipe.stops[1].id)
+        XCTAssertEqual(recipe.version, GradientRecipe.currentVersion)
+
+        let reencoded = try JSONDecoder().decode(GradientRecipe.self, from: JSONEncoder().encode(recipe))
+        XCTAssertEqual(reencoded, recipe)
+    }
+
+    @MainActor func testMeshEditingKeepsTheBorderOnTheCanvas() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.setMode(.mesh)
+
+        model.moveMeshVertex(0, x: 0.4, y: 0.3)
+        XCTAssertEqual(model.meshVertices[0], MeshVertex(x: 0, y: 0), "Corners stay put")
+        model.moveMeshVertex(1, x: 0.7, y: 0.4)
+        XCTAssertEqual(model.meshVertices[1].y, 0, "Top edge points slide along the edge")
+        XCTAssertEqual(model.meshVertices[1].x, 0.7)
+        model.moveMeshVertex(4, x: 0.62, y: 0.2)
+        XCTAssertEqual(model.meshVertices[4].x, 0.62)
+
+        let stop = try XCTUnwrap(model.recipe.stops.last)
+        model.setMeshVertexColor(4, stopID: stop.id)
+        XCTAssertEqual(model.meshStop(at: 4)?.id, stop.id)
+
+        model.setMeshSize(4)
+        XCTAssertEqual(model.meshVertices.count, 16)
+        XCTAssertEqual(model.meshVertices[0], MeshVertex(x: 0, y: 0))
+        XCTAssertEqual(model.meshVertices[15].x, 1)
+        model.moveMeshVertex(5, x: 0.95, y: 0.95)
+        XCTAssertLessThan(model.meshVertices[5].x, model.meshVertices[6].x, "Points stay between their neighbors, so the grid can't fold")
+        XCTAssertLessThan(model.meshVertices[5].y, model.meshVertices[9].y)
+
+        model.straightenMesh()
+        XCTAssertEqual(model.meshVertices.map(\.x), MeshGrid.regular(size: 4).map(\.x))
+        for _ in 0..<20 {
+            let random = StudioModel.randomized(model.recipe)
+            let vertices = MeshGrid.vertices(for: random)
+            XCTAssertTrue(vertices[0 ..< 4].allSatisfy { $0.y == 0 } && vertices[12 ..< 16].allSatisfy { $0.y == 1 })
+        }
+    }
+
+    /// Any number of tray colors fills either grid evenly, with each color in one connected patch.
+    @MainActor func testAutomaticMeshFillIsEvenAndConnected() {
+        for size in MeshGrid.sizes {
+            let points = size * size
+            for count in 1...StudioModel.maximumStops {
+                let colors = (0..<points).map { MeshGrid.automaticStopIndex(at: $0, size: size, count: count) }
+                let shares = (0..<count).map { color in colors.filter { $0 == color }.count }
+                XCTAssertEqual(Set(colors).count, count, "\(count) colors on \(size)×\(size)")
+                XCTAssertLessThanOrEqual(shares.max()! - shares.min()!, 1)
+                for color in 0..<count {
+                    let members = (0..<points).filter { colors[$0] == color }
+                    var reached: Set<Int> = [members[0]], frontier = [members[0]]
+                    while let point = frontier.popLast() {
+                        for other in members where !reached.contains(other)
+                            && abs(other / size - point / size) <= 1 && abs(other % size - point % size) <= 1 {
+                            reached.insert(other); frontier.append(other)
+                        }
+                    }
+                    XCTAssertEqual(reached.count, members.count, "Color \(color) of \(count) on \(size)×\(size) is one patch")
+                }
+            }
+        }
+    }
+
+    @MainActor func testShuffleMeshColorsKeepsEachColorsShare() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        model.setMode(.mesh)
+        let before = (0..<9).compactMap { model.meshStop(at: $0)?.id }
+        model.shuffleMeshColors()
+        let after = (0..<9).compactMap { model.meshStop(at: $0)?.id }
+        XCTAssertEqual(before.sorted { $0.uuidString < $1.uuidString }, after.sorted { $0.uuidString < $1.uuidString })
+        XCTAssertNotEqual(before, after)
+        XCTAssertTrue(model.meshVertices.allSatisfy { $0.stopID != nil })
     }
 }

@@ -63,7 +63,7 @@ enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct GradientRecipe: Codable, Equatable, Sendable {
-    static let currentVersion = 3
+    static let currentVersion = 4
 
     var stops: [ColorStop] = [.init(hex: "F3AC91", x: 0.18, y: 0.20), .init(hex: "7655A3", x: 0.78, y: 0.24), .init(hex: "F3CC91", x: 0.34, y: 0.82), .init(hex: "3B526E", x: 0.92, y: 0.85)]
     var mode: GradientMode = .organic
@@ -91,6 +91,10 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var grain: Double = 0.20
     var grainSize: Double = 1.0
     var seed: UInt64 = 42
+    /// Mesh: the grid is `meshSize` × `meshSize` points. `meshVertices` holds them row by row; empty
+    /// means an even grid filled from the tray colors in order.
+    var meshSize: Int = 3
+    var meshVertices: [MeshVertex] = []
     var width: Int = 2160
     var height: Int = 2880
     var version: Int = GradientRecipe.currentVersion
@@ -98,7 +102,8 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case stops, mode, flow, softness, swirl, angleDegrees, gradientPosition, fadeWidth
         case startX, startY, endX, endY, smoothBlend
-        case easing, colorArc, centerX, centerY, textureEnabled, grain, grainSize, seed, width, height, version
+        case easing, colorArc, centerX, centerY, textureEnabled, grain, grainSize, seed, meshSize, meshVertices
+        case width, height, version
     }
 
     init(
@@ -123,6 +128,8 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         grain: Double = 0.20,
         grainSize: Double = 1,
         seed: UInt64 = 42,
+        meshSize: Int = 3,
+        meshVertices: [MeshVertex] = [],
         width: Int = 2160,
         height: Int = 2880
     ) {
@@ -147,6 +154,8 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         self.grain = grain
         self.grainSize = grainSize
         self.seed = seed
+        self.meshSize = meshSize
+        self.meshVertices = meshVertices
         self.width = width
         self.height = height
     }
@@ -170,6 +179,8 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         grain = try values.decodeIfPresent(Double.self, forKey: .grain) ?? grain
         grainSize = try values.decodeIfPresent(Double.self, forKey: .grainSize) ?? grainSize
         seed = try values.decodeIfPresent(UInt64.self, forKey: .seed) ?? seed
+        meshSize = try values.decodeIfPresent(Int.self, forKey: .meshSize) ?? meshSize
+        meshVertices = try values.decodeIfPresent([MeshVertex].self, forKey: .meshVertices) ?? meshVertices
         width = try values.decodeIfPresent(Int.self, forKey: .width) ?? width
         height = try values.decodeIfPresent(Int.self, forKey: .height) ?? height
         let savedVersion = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -191,6 +202,10 @@ struct GradientRecipe: Codable, Equatable, Sendable {
             let far = gradientPosition + 0.5 * fadeWidth - 0.5
             startX = 0.5 + near * axisX; startY = 0.5 + near * axisY
             endX = 0.5 + far * axisX; endY = 0.5 + far * axisY
+        }
+        // Before version 4, Mesh blended free-floating points. Open those as the nearest grid layout.
+        if savedVersion < 4, mode == .mesh, !values.contains(.meshVertices) {
+            meshVertices = MeshGrid.migrated(from: stops, size: meshSize)
         }
         version = Self.currentVersion
     }

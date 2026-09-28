@@ -35,6 +35,10 @@ import UniformTypeIdentifiers
     @Published var errorMessage: String?
 
     weak var undoManager: UndoManager?
+    /// Recipe edits undo against this target, so opening another gradient can drop them without
+    /// also dropping library undo (colors, collections, names), which doesn't depend on the canvas.
+    private let recipeUndoTarget = RecipeUndoTarget()
+    private final class RecipeUndoTarget {}
 
     private let gradientsURL: URL
     private let legacyPalettesURL: URL
@@ -177,7 +181,7 @@ import UniformTypeIdentifiers
         currentGradientID = id
         UserDefaults.standard.set(id.uuidString, forKey: Self.currentGradientPreference)
         load(gradient.recipe, animated: true)
-        undoManager?.removeAllActions()
+        undoManager?.removeAllActions(withTarget: recipeUndoTarget)
     }
 
     private func load(_ recipe: GradientRecipe, animated: Bool) {
@@ -203,7 +207,7 @@ import UniformTypeIdentifiers
         UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
         load(fresh, animated: true)
         saveNow()
-        undoManager?.removeAllActions()
+        undoManager?.removeAllActions(withTarget: recipeUndoTarget)
         return gradient.id
     }
 
@@ -275,6 +279,7 @@ import UniformTypeIdentifiers
     /// Renames a gradient (the current one by default). An empty name hands naming back to the generator.
     func renameGradient(id: UUID? = nil, to name: String) {
         guard let id = id ?? currentGradientID, let index = gradients.firstIndex(where: { $0.id == id }) else { return }
+        let previous = naming(at: index)
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             gradients[index].hasCustomName = false
@@ -285,6 +290,7 @@ import UniformTypeIdentifiers
             gradients[index].hasCustomName = true
         }
         saveNow()
+        registerRenameUndo(id: id, restoring: previous)
     }
 
     func renameCurrentGradient(_ name: String) { renameGradient(to: name) }
@@ -298,10 +304,42 @@ import UniformTypeIdentifiers
     /// Rolls a different automatic name from the current colors — used by the rename sheet's shuffle.
     func shuffleAutomaticName() {
         guard let index = currentIndex else { return }
+        let previous = naming(at: index)
         gradients[index].hasCustomName = false
         gradients[index].nameSeed = Int.random(in: 0...9_999)
         gradients[index].name = NameGenerator.name(for: recipe, seed: gradients[index].nameSeed)
         saveNow()
+        registerRenameUndo(id: gradients[index].id, restoring: previous)
+    }
+
+    /// Everything a rename touches: undoing one also restores whether the name follows the colors.
+    private struct Naming: Equatable { var name: String; var hasCustomName: Bool; var nameSeed: Int }
+
+    private func naming(at index: Int) -> Naming {
+        Naming(name: gradients[index].name, hasCustomName: gradients[index].hasCustomName, nameSeed: gradients[index].nameSeed)
+    }
+
+    private func registerRenameUndo(id: UUID, restoring previous: Naming) {
+        guard let undoManager, let index = gradients.firstIndex(where: { $0.id == id }), naming(at: index) != previous else { return }
+        undoManager.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { model.restoreNaming(previous, of: id) }
+        }
+        undoManager.setActionName("Rename Gradient")
+    }
+
+    private func restoreNaming(_ naming: Naming, of id: UUID) {
+        guard let index = gradients.firstIndex(where: { $0.id == id }) else { return }
+        let current = self.naming(at: index)
+        gradients[index].name = naming.name
+        gradients[index].hasCustomName = naming.hasCustomName
+        gradients[index].nameSeed = naming.nameSeed
+        // An automatic name follows the colors, which may have changed since.
+        if !naming.hasCustomName {
+            let source = id == currentGradientID ? recipe : gradients[index].recipe
+            gradients[index].name = NameGenerator.name(for: source, seed: naming.nameSeed)
+        }
+        saveNow()
+        registerRenameUndo(id: id, restoring: current)
     }
 
     func thumbnail(for gradient: SavedGradient) -> NSImage? {
@@ -334,8 +372,8 @@ import UniformTypeIdentifiers
         guard let undoManager else { return }
         if !undoBurstOpen {
             undoBurstOpen = true
-            undoManager.registerUndo(withTarget: self) { model in
-                MainActor.assumeIsolated { model.restore(old) }
+            undoManager.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in
+                MainActor.assumeIsolated { self?.restore(old) }
             }
             undoManager.setActionName("Gradient Change")
         }
@@ -349,8 +387,8 @@ import UniformTypeIdentifiers
 
     private func restore(_ target: GradientRecipe) {
         let current = recipe
-        undoManager?.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated { model.restore(current) }
+        undoManager?.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restore(current) }
         }
         undoBurstOpen = false
         isApplyingUndo = true
@@ -412,13 +450,30 @@ import UniformTypeIdentifiers
         do { try persistColorLibraries() } catch { errorMessage = error.localizedDescription }
     }
 
+    /// Color and collection edits undo by restoring the whole set of collections: it's small, and a
+    /// snapshot puts a deleted color or collection back exactly where it was.
+    private func registerLibraryUndo(_ actionName: String, restoring previous: [ColorLibrary]) {
+        guard let undoManager, previous != colorLibraries else { return }
+        undoManager.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated {
+                let current = model.colorLibraries
+                model.colorLibraries = previous
+                model.saveColorLibraries()
+                model.registerLibraryUndo(actionName, restoring: current)
+            }
+        }
+        undoManager.setActionName(actionName)
+    }
+
     @discardableResult func createColorLibrary(name: String, colors: [LibraryColor] = []) -> UUID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
+        let previous = colorLibraries
         let library = ColorLibrary(name: name, colors: colors)
         colorLibraries.append(library)
         do {
             try persistColorLibraries()
+            registerLibraryUndo("New Collection", restoring: previous)
             flash("Created \(name)")
             return library.id
         } catch {
@@ -442,22 +497,28 @@ import UniformTypeIdentifiers
     @discardableResult func renameColorLibrary(id: UUID, to name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let index = colorLibraries.firstIndex(where: { $0.id == id }), !colorLibraries[index].isBuiltIn else { return false }
+        let previous = colorLibraries
         colorLibraries[index].name = name
         saveColorLibraries()
+        registerLibraryUndo("Rename Collection", restoring: previous)
         return true
     }
 
     func deleteColorLibrary(id: UUID) {
         guard let library = colorLibraries.first(where: { $0.id == id }), !library.isBuiltIn else { return }
+        let previous = colorLibraries
         colorLibraries.removeAll { $0.id == id }
         saveColorLibraries()
+        registerLibraryUndo("Delete Collection", restoring: previous)
         flash("Deleted \(library.name)")
     }
 
     func deleteLibraryColor(_ colorID: UUID, from libraryID: UUID) {
         guard let index = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[index].isBuiltIn else { return }
+        let previous = colorLibraries
         colorLibraries[index].colors.removeAll { $0.id == colorID }
         saveColorLibraries()
+        registerLibraryUndo("Delete Color", restoring: previous)
     }
 
     @discardableResult func updateLibraryColor(_ colorID: UUID, in libraryID: UUID, name: String, hex: String) -> Bool {
@@ -465,15 +526,19 @@ import UniformTypeIdentifiers
         guard let hex = Hex.normalized(hex),
               let libraryIndex = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[libraryIndex].isBuiltIn,
               let colorIndex = colorLibraries[libraryIndex].colors.firstIndex(where: { $0.id == colorID }) else { return false }
+        let previous = colorLibraries
+        let onlyRenamed = previous[libraryIndex].colors[colorIndex].hex == hex
         colorLibraries[libraryIndex].colors[colorIndex].name = name
         colorLibraries[libraryIndex].colors[colorIndex].hex = hex
         saveColorLibraries()
+        registerLibraryUndo(onlyRenamed ? "Rename Color" : "Edit Color", restoring: previous)
         return true
     }
 
     @discardableResult func saveColor(name: String, hex: String, libraryID: UUID? = nil) -> UUID? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let hex = Hex.normalized(hex) else { return nil }
+        let previous = colorLibraries
         var target = colorLibraries.firstIndex { $0.id == libraryID && !$0.isBuiltIn }
         if target == nil {
             target = colorLibraries.firstIndex { $0.name == "My Colors" && !$0.isBuiltIn }
@@ -487,10 +552,11 @@ import UniformTypeIdentifiers
         colorLibraries[target].colors.append(color)
         do {
             try persistColorLibraries()
+            registerLibraryUndo("Add Color", restoring: previous)
             flash("Saved \(color.displayName) to \(colorLibraries[target].name)")
             return colorLibraries[target].id
         } catch {
-            colorLibraries[target].colors.removeLast()
+            colorLibraries = previous
             errorMessage = error.localizedDescription
             return nil
         }
@@ -519,9 +585,11 @@ import UniformTypeIdentifiers
         let imported = ColorLibrary(name: name, colors: decoded.colors.map {
             LibraryColor(name: $0.name, hex: $0.hex.uppercased())
         })
+        let previous = colorLibraries
         colorLibraries.append(imported)
         do { try persistColorLibraries() }
-        catch { colorLibraries.removeAll { $0.id == imported.id }; throw error }
+        catch { colorLibraries = previous; throw error }
+        registerLibraryUndo("Import Collection", restoring: previous)
         flash("Imported \(imported.name)")
         return imported.id
     }
@@ -594,14 +662,85 @@ import UniformTypeIdentifiers
         recipe.stops[index].hex = hex
     }
 
-    /// How strongly a color point pulls in the point-based styles (Organic, Mesh).
+    /// How strongly a color point pulls in Organic.
     func setWeight(_ weight: Double, for id: UUID) {
         guard let index = recipe.stops.firstIndex(where: { $0.id == id }) else { return }
         recipe.stops[index].weight = min(4, max(0.1, weight))
     }
 
     /// Whether the current style uses per-point strength (i.e. blends positioned points spatially).
-    var usesPointStrength: Bool { recipe.mode == .organic || recipe.mode == .mesh }
+    var usesPointStrength: Bool { recipe.mode == .organic }
+
+    // MARK: - Mesh grid
+
+    var meshVertices: [MeshVertex] { MeshGrid.vertices(for: recipe) }
+    var meshSize: Int { MeshGrid.clampedSize(recipe.meshSize) }
+
+    /// The tray color a mesh point shows.
+    func meshStop(at index: Int) -> ColorStop? {
+        let vertices = meshVertices
+        guard vertices.indices.contains(index),
+              let stop = MeshGrid.stopIndex(of: vertices[index], at: index, size: meshSize, in: recipe.stops) else { return nil }
+        return recipe.stops[stop]
+    }
+
+    /// Switches between a 3 × 3 and 4 × 4 grid, keeping the current bends and chosen colors.
+    func setMeshSize(_ size: Int) {
+        let size = MeshGrid.clampedSize(size)
+        guard size != meshSize else { return }
+        var updated = recipe
+        updated.meshVertices = MeshGrid.resampled(meshVertices, from: meshSize, to: size)
+        updated.meshSize = size
+        recipe = updated
+    }
+
+    /// Moves a mesh point. Corners stay put and edge points slide along their edge.
+    func moveMeshVertex(_ index: Int, x: Double, y: Double) {
+        var vertices = meshVertices
+        guard vertices.indices.contains(index) else { return }
+        let position = MeshGrid.constrained(index, x: x, y: y, in: vertices, size: meshSize)
+        vertices[index].x = position.x
+        vertices[index].y = position.y
+        recipe.meshVertices = vertices
+    }
+
+    /// Pins a mesh point to one tray color; nil returns it to the tray order.
+    func setMeshVertexColor(_ index: Int, stopID: UUID?) {
+        var vertices = meshVertices
+        guard vertices.indices.contains(index) else { return }
+        vertices[index].stopID = stopID
+        recipe.meshVertices = vertices
+    }
+
+    /// Deals the tray colors across the mesh points in a new arrangement, keeping every color's share
+    /// even. Points get pinned colors, which clicking a point can still change.
+    func shuffleMeshColors() {
+        guard !recipe.stops.isEmpty else { return }
+        let size = meshSize
+        let current = (0..<size * size).map { meshStop(at: $0)?.id }
+        var shares = (0..<size * size).map { recipe.stops[MeshGrid.automaticStopIndex(at: $0, size: size, count: recipe.stops.count)].id }
+        // Reshuffle until something actually moves (a one-color tray has nothing to move).
+        for _ in 0..<8 where Set(shares).count > 1 {
+            shares.shuffle()
+            if shares != current { break }
+        }
+        var vertices = meshVertices
+        for index in vertices.indices { vertices[index].stopID = shares[index] }
+        recipe.meshVertices = vertices
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+    }
+
+    /// Puts every mesh point back on an even grid, keeping the colors they show.
+    func straightenMesh() {
+        recipe.meshVertices = Self.straightened(recipe)
+    }
+
+    private static func straightened(_ recipe: GradientRecipe) -> [MeshVertex] {
+        let size = MeshGrid.clampedSize(recipe.meshSize)
+        return zip(MeshGrid.regular(size: size), MeshGrid.vertices(for: recipe)).map { even, vertex in
+            MeshVertex(x: even.x, y: even.y, stopID: vertex.stopID)
+        }
+    }
 
     /// Reveals all canvas points while the tray is hovered, with a short grace period on exit so the
     /// points don't flicker when the pointer moves up to the canvas to grab one.
@@ -675,6 +814,7 @@ import UniformTypeIdentifiers
         updated.easing = defaults.easing
         updated.colorArc = updated.mode == .linear ? 0 : defaults.colorArc
         updated.centerX = defaults.centerX; updated.centerY = defaults.centerY
+        updated.meshVertices = Self.straightened(updated)
         updated.seed = defaults.seed
         animateNextPreview = true
         recipe = updated
@@ -737,12 +877,28 @@ import UniformTypeIdentifiers
         var recipe = source
         recipe.seed = UInt64.random(in: 1...UInt64.max)
         switch recipe.mode {
-        case .organic, .mesh:
+        case .organic:
             for index in recipe.stops.indices {
                 recipe.stops[index].x = Double.random(in: 0.05...0.95)
                 recipe.stops[index].y = Double.random(in: 0.05...0.95)
             }
             recipe.swirl = Bool.random() ? Double.random(in: 0.2...0.8) : 0
+        case .mesh:
+            // Bend the grid: nudge every point within its cell, keeping its color.
+            let size = MeshGrid.clampedSize(recipe.meshSize)
+            let cell = 1 / Double(size - 1)
+            var vertices = straightened(recipe)
+            for index in vertices.indices {
+                let position = MeshGrid.constrained(
+                    index,
+                    x: vertices[index].x + Double.random(in: -0.42...0.42) * cell,
+                    y: vertices[index].y + Double.random(in: -0.42...0.42) * cell,
+                    in: vertices, size: size
+                )
+                vertices[index].x = position.x
+                vertices[index].y = position.y
+            }
+            recipe.meshVertices = vertices
         case .tonal:
             recipe.flow = Double.random(in: 0.25...0.95)
             recipe.softness = Double.random(in: 0.2...0.9)
@@ -976,7 +1132,7 @@ import UniformTypeIdentifiers
             UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
             load(recipe, animated: true)
             saveNow()
-            undoManager?.removeAllActions()
+            undoManager?.removeAllActions(withTarget: recipeUndoTarget)
         } catch { errorMessage = "Could not open that recipe: \(error.localizedDescription)" }
     }
 
@@ -992,6 +1148,9 @@ import UniformTypeIdentifiers
               candidate.fadeWidth.isFinite, (0.05...6).contains(candidate.fadeWidth),
               [candidate.startX, candidate.startY, candidate.endX, candidate.endY].allSatisfy({ $0.isFinite && (-3...3).contains($0) }),
               candidate.grainSize.isFinite, (0.25...10).contains(candidate.grainSize),
+              MeshGrid.sizes.contains(candidate.meshSize),
+              candidate.meshVertices.isEmpty || candidate.meshVertices.count == candidate.meshSize * candidate.meshSize,
+              candidate.meshVertices.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }),
               candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && Hex.normalized($0.hex) != nil })
         else { throw CocoaError(.fileReadCorruptFile) }
         return candidate
