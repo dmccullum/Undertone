@@ -126,6 +126,7 @@ private struct ArtworkView: View {
     /// The mesh point whose color popover is open; its handles stay visible meanwhile.
     @State private var editingVertex: Int?
     @State private var vertexDragOrigin: CGPoint?
+    @State private var lastPointClick: (index: Int, time: Date)?
 
     private var ratio: CGFloat { CGFloat(model.recipe.width) / CGFloat(max(model.recipe.height, 1)) }
     private var modeHasHandles: Bool {
@@ -167,7 +168,10 @@ private struct ArtworkView: View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         return ZStack {
             shape.fill(Color(nsColor: .controlBackgroundColor))
-            if let image = model.preview {
+            if let metal = RenderEngine.metal {
+                MetalCanvas(recipe: model.recipe, renderer: metal)
+                    .frame(width: size.width, height: size.height)
+            } else if let image = model.preview {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -178,6 +182,9 @@ private struct ArtworkView: View {
             } else {
                 ProgressView().controlSize(.small)
             }
+            // Drag out and ⌘C; the handles sit above this, so they still get their own clicks.
+            CanvasDragSource(model: model)
+                .frame(width: size.width, height: size.height)
         }
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
@@ -190,10 +197,6 @@ private struct ArtworkView: View {
                 .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
         }
         .contentShape(shape)
-        .onDrag { model.dragItemProvider() }
-        .focusable()
-        .focusEffectDisabled()
-        .onCopyCommand { model.copyItemProvider().map { [$0] } ?? [] }
         .help("Drag into Finder, Canva or any app to export")
     }
 
@@ -249,21 +252,31 @@ private struct ArtworkView: View {
             .allowsHitTesting(false)
 
             ForEach(vertices.indices, id: \.self) { index in
-                let stop = model.meshStop(at: index)
-                PointHandle(color: stop?.color ?? .white, emphasized: stop != nil && stop?.id == model.highlightedStopID)
-                    .position(x: CGFloat(vertices[index].x) * size.width, y: CGFloat(vertices[index].y) * size.height)
-                    .gesture(vertexDrag(index: index, size: size))
-                    .popover(isPresented: Binding(get: { editingVertex == index }, set: { if !$0 { editingVertex = nil } }), arrowEdge: .top) {
-                        MeshVertexEditor(index: index)
-                            .environmentObject(model)
-                    }
-                    .accessibilityLabel("Mesh point \(index + 1)")
-                    .accessibilityAction { editingVertex = index }
+                let hex = vertices[index].hex
+                PointHandle(
+                    color: hex.isEmpty ? .clear : Hex.color(hex),
+                    emphasized: model.highlightedMeshPoint == index,
+                    selected: model.selectedMeshPoint == index
+                )
+                // The popover hangs off the handle itself (so it's attached before positioning), on
+                // whichever side of the point has room.
+                .popover(isPresented: Binding(get: { editingVertex == index }, set: { if !$0 { editingVertex = nil } }),
+                         arrowEdge: MeshPointEditor.edge(x: vertices[index].x, y: vertices[index].y)) {
+                    MeshPointEditor(index: index)
+                        .environmentObject(model)
+                }
+                .position(x: CGFloat(vertices[index].x) * size.width, y: CGFloat(vertices[index].y) * size.height)
+                .gesture(vertexDrag(index: index, size: size))
+                .accessibilityLabel("Mesh point \(index + 1)")
+                .accessibilityAddTraits(model.selectedMeshPoint == index ? .isSelected : [])
+                .accessibilityAction { model.selectMeshPoint(index) }
+                .accessibilityAction(named: "Edit Color") { editingVertex = index }
             }
         }
     }
 
-    /// Drags a mesh point from where it sits (so a click doesn't nudge it); a click opens its colors.
+    /// Drags a mesh point from where it sits (so a click doesn't nudge it). A click selects the point
+    /// for painting; a double-click opens its colors.
     private func vertexDrag(index: Int, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .named("artworkCanvas"))
             .onChanged { value in
@@ -280,7 +293,16 @@ private struct ArtworkView: View {
                 model.moveMeshVertex(index, x: x, y: y)
             }
             .onEnded { _ in
-                if vertexDragOrigin == nil { editingVertex = index }
+                if vertexDragOrigin == nil {
+                    let now = Date()
+                    if let last = lastPointClick, last.index == index, now.timeIntervalSince(last.time) < NSEvent.doubleClickInterval {
+                        editingVertex = index
+                        lastPointClick = nil
+                    } else {
+                        model.selectMeshPoint(index)
+                        lastPointClick = (index, now)
+                    }
+                }
                 vertexDragOrigin = nil
                 draggingHandle = false
                 snappedKeys.removeAll()
@@ -447,10 +469,17 @@ private struct ArtworkView: View {
 private struct PointHandle: View {
     let color: Color
     var emphasized = false
+    /// Mesh: the point library clicks paint, ringed in the accent color.
+    var selected = false
 
     var body: some View {
         Circle()
             .fill(color)
+            .overlay {
+                if selected {
+                    Circle().strokeBorder(Color.accentColor, lineWidth: 3).frame(width: 34, height: 34)
+                }
+            }
             .frame(width: emphasized ? 26 : 22, height: emphasized ? 26 : 22)
             .overlay { Circle().strokeBorder(.white, lineWidth: emphasized ? 3.5 : 2.5) }
             // A steady outer ring marks the hovered point — no motion.
@@ -465,46 +494,72 @@ private struct PointHandle: View {
     }
 }
 
-/// Picks which tray color a mesh point shows.
-private struct MeshVertexEditor: View {
+/// A mesh point's color: any color already in the mesh or the gradient, or a custom one.
+struct MeshPointEditor: View {
     @EnvironmentObject private var model: StudioModel
     let index: Int
 
+    /// Which side of a point its popover opens on, so it stays clear of the canvas edges.
+    static func edge(x: Double, y: Double) -> Edge {
+        if y < 0.3 { return .bottom }
+        if y > 0.7 { return .top }
+        return x < 0.5 ? .trailing : .leading
+    }
+
+    private var hex: String { model.meshColor(at: index) }
+
+    /// Colors on the grid, then the gradient's own, without repeats.
+    private var choices: [String] {
+        var seen: Set<String> = []
+        return (model.meshVertices.map(\.hex) + model.recipe.stops.map(\.hex)).filter { !$0.isEmpty && seen.insert($0.uppercased()).inserted }
+    }
+
     var body: some View {
-        let current = model.meshStop(at: index)
-        let pinned = model.meshVertices.indices.contains(index) && model.meshVertices[index].stopID != nil
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Point Color")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            if model.recipe.stops.isEmpty {
-                Text("Add colors to the tray first.")
-                    .font(.callout)
-            } else {
-                HStack(spacing: 8) {
-                    ForEach(model.recipe.stops) { stop in
-                        Button { model.setMeshVertexColor(index, stopID: stop.id) } label: {
-                            ColorDot(hex: stop.hex, size: 24)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ColorPicker("Color", selection: Binding(
+                    get: { Hex.color(hex.isEmpty ? "808080" : hex) },
+                    set: { model.setMeshColor(Hex.string(from: $0), at: index) }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                HexField(label: "Hex color", value: Binding(get: { hex }, set: { model.setMeshColor($0, at: index) }))
+                    .frame(width: 96)
+            }
+            if !hex.isEmpty {
+                Text(model.libraryName(for: hex) ?? ColorNamer.name(hex))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !choices.isEmpty {
+                Divider()
+                Text("In This Gradient")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 6), count: 6), alignment: .leading, spacing: 6) {
+                    ForEach(choices, id: \.self) { choice in
+                        Button { model.setMeshColor(choice, at: index) } label: {
+                            ColorDot(hex: choice, size: 22)
                                 .overlay {
-                                    if stop.id == current?.id {
-                                        Circle().strokeBorder(Color.accentColor, lineWidth: 2.5).frame(width: 30, height: 30)
+                                    if choice.caseInsensitiveCompare(hex) == .orderedSame {
+                                        Circle().strokeBorder(Color.accentColor, lineWidth: 2.5).frame(width: 28, height: 28)
                                     }
                                 }
-                                .frame(width: 30, height: 30)
+                                .frame(width: 28, height: 28)
                         }
                         .buttonStyle(.plain)
-                        .help(model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex))
-                        .accessibilityLabel(model.libraryName(for: stop.hex) ?? ColorNamer.name(stop.hex))
+                        .help(model.libraryName(for: choice) ?? ColorNamer.name(choice))
+                        .accessibilityLabel(model.libraryName(for: choice) ?? ColorNamer.name(choice))
                     }
                 }
-                Button("Automatic Color") { model.setMeshVertexColor(index, stopID: nil) }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .disabled(!pinned)
-                    .help("Let the tray order choose this point's color again")
             }
+            Text("Tip: select a point, then click colors in your collections to paint it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
+        .frame(width: 236)
+        .onAppear { model.selectMeshPoint(index) }
     }
 }
 
@@ -578,6 +633,15 @@ private struct ColorTray: View {
     }
 
     var body: some View {
+        if model.recipe.mode == .mesh {
+            MeshTray()
+                .onHover { model.setTrayHovering($0) }
+        } else {
+            chips
+        }
+    }
+
+    private var chips: some View {
         HStack(spacing: 10) {
             if model.recipe.stops.isEmpty {
                 Text(model.recipe.mode == .tonal ? "Pick a base color" : "Add colors from your collections")
@@ -656,6 +720,75 @@ private struct ColorTray: View {
                     if remove { model.removeColor(id: stop.id) }
                 }
             }
+    }
+}
+
+/// Mesh's tray: a small grid that mirrors the canvas points one to one. Click a cell to select that
+/// point (library clicks paint it), double-click for its colors; hovering lights the point up.
+private struct MeshTray: View {
+    @EnvironmentObject private var model: StudioModel
+    @State private var editing: Int?
+    @State private var lastClick: (index: Int, time: Date)?
+
+    var body: some View {
+        let size = model.meshSize
+        let cell: CGFloat = size == 3 ? 22 : 17
+        HStack(spacing: 12) {
+            Grid(horizontalSpacing: 5, verticalSpacing: 5) {
+                ForEach(0..<size, id: \.self) { row in
+                    GridRow {
+                        ForEach(0..<size, id: \.self) { column in
+                            cellView(row * size + column, diameter: cell)
+                        }
+                    }
+                }
+            }
+            Text(model.meshColor(at: model.selectedMeshPoint).isEmpty
+                 ? "Pick a point,\nthen a color"
+                 : "Point \(model.selectedMeshPoint + 1) of \(size * size)\nClick colors to paint")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
+
+    private func cellView(_ index: Int, diameter: CGFloat) -> some View {
+        let hex = model.meshColor(at: index)
+        let selected = model.selectedMeshPoint == index
+        return Circle()
+            .fill(hex.isEmpty ? Color.clear : Hex.color(hex))
+            .overlay { Circle().strokeBorder(Color.primary.opacity(hex.isEmpty ? 0.35 : 0.14), style: StrokeStyle(lineWidth: 1, dash: hex.isEmpty ? [2, 2] : [])) }
+            .frame(width: diameter, height: diameter)
+            .padding(3)
+            .overlay { if selected { Circle().strokeBorder(Color.accentColor, lineWidth: 2) } }
+            .contentShape(Circle())
+            .onHover { hovering in
+                if hovering { model.highlightedMeshPoint = index } else if model.highlightedMeshPoint == index { model.highlightedMeshPoint = nil }
+            }
+            .onTapGesture {
+                let now = Date()
+                if let last = lastClick, last.index == index, now.timeIntervalSince(last.time) < NSEvent.doubleClickInterval {
+                    editing = index
+                    lastClick = nil
+                } else {
+                    model.selectMeshPoint(index)
+                    lastClick = (index, now)
+                }
+            }
+            .popover(isPresented: Binding(get: { editing == index }, set: { if !$0 { editing = nil } }), arrowEdge: .top) {
+                MeshPointEditor(index: index).environmentObject(model)
+            }
+            .help(hex.isEmpty ? "Point \(index + 1): unpainted" : "Point \(index + 1): \(model.libraryName(for: hex) ?? ColorNamer.name(hex)). Double-click to edit.")
+            .accessibilityElement()
+            .accessibilityLabel("Point \(index + 1), \(hex.isEmpty ? "unpainted" : hex)")
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { model.selectMeshPoint(index) }
+            .accessibilityAction(named: "Edit Color") { editing = index }
     }
 }
 

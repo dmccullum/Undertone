@@ -31,6 +31,27 @@ struct ColorStop: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// How Organic's colors move: melt in place, stretch like dragged paint, ripple in long waves, or
+/// bend with the original Organic's broad warp.
+enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
+    case still, pull, wave, classic
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .still: "Still"
+        case .pull: "Pull"
+        case .wave: "Wave"
+        case .classic: "Classic"
+        }
+    }
+
+    /// Unknown values (from newer files) open as Still.
+    init(from decoder: Decoder) throws {
+        self = OrganicFlow(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .still
+    }
+}
+
 enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case organic
     case mesh
@@ -63,10 +84,11 @@ enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct GradientRecipe: Codable, Equatable, Sendable {
-    static let currentVersion = 4
+    static let currentVersion = 5
 
     var stops: [ColorStop] = [.init(hex: "F3AC91", x: 0.18, y: 0.20), .init(hex: "7655A3", x: 0.78, y: 0.24), .init(hex: "F3CC91", x: 0.34, y: 0.82), .init(hex: "3B526E", x: 0.92, y: 0.85)]
     var mode: GradientMode = .organic
+    var organicFlow: OrganicFlow = .still
     var flow: Double = 0.55
     var softness: Double = 0.55
     /// Organic/Tonal: a vortex domain-warp that twirls the mesh. Its center and spin come from `seed`.
@@ -91,8 +113,8 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var grain: Double = 0.20
     var grainSize: Double = 1.0
     var seed: UInt64 = 42
-    /// Mesh: the grid is `meshSize` × `meshSize` points. `meshVertices` holds them row by row; empty
-    /// means an even grid filled from the tray colors in order.
+    /// Mesh: the grid is `meshSize` × `meshSize` points, each with its own color. `meshVertices` holds
+    /// them row by row; empty means an even grid not yet edited, seeded from `stops`.
     var meshSize: Int = 3
     var meshVertices: [MeshVertex] = []
     var width: Int = 2160
@@ -100,7 +122,7 @@ struct GradientRecipe: Codable, Equatable, Sendable {
     var version: Int = GradientRecipe.currentVersion
 
     enum CodingKeys: String, CodingKey {
-        case stops, mode, flow, softness, swirl, angleDegrees, gradientPosition, fadeWidth
+        case stops, mode, organicFlow, flow, softness, swirl, angleDegrees, gradientPosition, fadeWidth
         case startX, startY, endX, endY, smoothBlend
         case easing, colorArc, centerX, centerY, textureEnabled, grain, grainSize, seed, meshSize, meshVertices
         case width, height, version
@@ -164,6 +186,7 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         stops = try values.decodeIfPresent([ColorStop].self, forKey: .stops) ?? stops
         mode = try values.decodeIfPresent(GradientMode.self, forKey: .mode) ?? mode
+        organicFlow = try values.decodeIfPresent(OrganicFlow.self, forKey: .organicFlow) ?? organicFlow
         flow = try values.decodeIfPresent(Double.self, forKey: .flow) ?? flow
         softness = try values.decodeIfPresent(Double.self, forKey: .softness) ?? softness
         swirl = try values.decodeIfPresent(Double.self, forKey: .swirl) ?? swirl
@@ -180,7 +203,6 @@ struct GradientRecipe: Codable, Equatable, Sendable {
         grainSize = try values.decodeIfPresent(Double.self, forKey: .grainSize) ?? grainSize
         seed = try values.decodeIfPresent(UInt64.self, forKey: .seed) ?? seed
         meshSize = try values.decodeIfPresent(Int.self, forKey: .meshSize) ?? meshSize
-        meshVertices = try values.decodeIfPresent([MeshVertex].self, forKey: .meshVertices) ?? meshVertices
         width = try values.decodeIfPresent(Int.self, forKey: .width) ?? width
         height = try values.decodeIfPresent(Int.self, forKey: .height) ?? height
         let savedVersion = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -203,8 +225,12 @@ struct GradientRecipe: Codable, Equatable, Sendable {
             startX = 0.5 + near * axisX; startY = 0.5 + near * axisY
             endX = 0.5 + far * axisX; endY = 0.5 + far * axisY
         }
-        // Before version 4, Mesh blended free-floating points. Open those as the nearest grid layout.
-        if savedVersion < 4, mode == .mesh, !values.contains(.meshVertices) {
+        // Version 5 points own their colors; version 4 points named a tray color or followed the
+        // automatic fill. Before version 4, Mesh blended free-floating points: open those as the
+        // nearest grid layout.
+        if let legacy = try values.decodeIfPresent([LegacyMeshVertex].self, forKey: .meshVertices) {
+            meshVertices = MeshGrid.resolved(legacy, size: MeshGrid.clampedSize(meshSize), stops: stops)
+        } else if savedVersion < 4, mode == .mesh {
             meshVertices = MeshGrid.migrated(from: stops, size: meshSize)
         }
         version = Self.currentVersion

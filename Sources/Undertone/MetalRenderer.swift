@@ -91,17 +91,19 @@ final class MetalRenderer: @unchecked Sendable {
         set(.emptyRed, empty.red); set(.emptyGreen, empty.green); set(.emptyBlue, empty.blue)
 
         var stops: [SIMD4<Float>] = []
-        var waves: [SIMD4<Float>] = []
         if let organic = scene.organic {
             for index in organic.xs.indices {
-                stops.append(SIMD4(Float(organic.labs[index].lightness), Float(organic.labs[index].a), Float(organic.labs[index].b), 0))
-                stops.append(SIMD4(Float(organic.xs[index]), Float(organic.ys[index]), Float(organic.weights[index]), 0))
+                stops.append(SIMD4(Float(organic.labs[index].lightness), Float(organic.labs[index].a), Float(organic.labs[index].b), Float(organic.chromas[index])))
+                stops.append(SIMD4(Float(organic.xs[index]), Float(organic.ys[index]), Float(organic.weights[index]), Float(organic.pullAngles[index])))
             }
-            waves = organic.waves.map { SIMD4(Float($0.dx), Float($0.dy), Float($0.frequency), Float($0.phase)) }
-            set(.organicFalloff, organic.falloff); set(.organicFlowStep, organic.flowStep)
+            set(.organicCore, organic.core)
+            set(.organicClassic, organic.style == .classic ? 1 : 0)
+            set(.organicPullStretch, organic.pullStretch)
+            set(.organicWaveX, organic.waveX); set(.organicWaveY, organic.waveY)
+            set(.organicWavePhaseA, organic.wavePhaseA); set(.organicWavePhaseB, organic.wavePhaseB)
+            set(.organicWaveHeight, organic.waveHeight)
             set(.organicSwirlStrength, organic.swirlStrength)
             set(.organicSwirlCenterX, organic.swirlCenterX); set(.organicSwirlCenterY, organic.swirlCenterY)
-            set(.flowSteps, GradientRenderer.OrganicField.flowSteps)
         } else {
             for stop in scene.tonalStops {
                 stops.append(SIMD4(Float(stop.color.red), Float(stop.color.green), Float(stop.color.blue), 0))
@@ -109,7 +111,6 @@ final class MetalRenderer: @unchecked Sendable {
             }
         }
         set(.stopCount, stops.count / 2)
-        set(.waveCount, waves.count)
         let palette = scene.palette.map { SIMD4(Float($0.red), Float($0.green), Float($0.blue), 0) }
         set(.paletteCount, palette.count)
 
@@ -133,7 +134,6 @@ final class MetalRenderer: @unchecked Sendable {
         try setBuffer(ints, .ints, encoder)
         try setBuffer(stops, .stops, encoder)
         try setBuffer(palette, .palette, encoder)
-        try setBuffer(waves, .waves, encoder)
         try setBuffer(scene.xWarp.map(Float.init), .xWarp, encoder)
         try setBuffer(scene.yWarp.map(Float.init), .yWarp, encoder)
         try setBuffer(lattice, .lattice, encoder)

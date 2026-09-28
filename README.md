@@ -8,7 +8,9 @@ A native Mac studio for expressive gradients and film grain. Built with SwiftUI 
 swift run -c release
 ```
 
-Use the release configuration. A plain `swift run` builds for debugging, and the per-pixel renderer runs many times slower that way.
+Use the release configuration. A plain `swift run` builds for debugging, and the CPU renderer runs many times slower that way.
+
+Rendering runs on the GPU (Metal) when this Mac's GPU passes a self-test at launch: it renders a set of fixtures on the GPU and on the CPU reference and requires every pixel to match within 2/255. A Mac that doesn't pass keeps rendering on the CPU, so every Mac produces the same image within 2/255. All output is 8-bit sRGB.
 
 To package a local app:
 
@@ -33,8 +35,8 @@ The window has three parts: the library sidebar on the left, the canvas in the m
 
 **Styles.** The inspector shows each style as a live thumbnail of your colors:
 
-- **Organic** is loose, liquid color: each point is a soft blob, blended in OKLab so mixes stay bright. Flow drags the borders around like paint in water and Swirl twists them; Shuffle Flow rerolls the current for a new happy accident.
-- **Mesh** is a true gradient mesh. The tray colors fill a 3 × 3 or 4 × 4 grid of points in diagonal runs, and a smooth surface in OKLab runs through them. Drag a point to bend the grid into curved, directional seams; click one to give it any tray color. Shuffle Colors deals the palette across the points again. Softness runs from crisp seams through a classic mesh to a hazy wash. Mesh files from earlier versions open as the nearest grid.
+- **Organic** melts soft color fields into each other, blended in OKLab with saturation kept so mixes stay vivid. Choose how the colors move: **Still** melts them in place, shaped only by the points; **Pull** drags each color in a shared brush direction into long smears; **Wave** ripples the borders in long, soft waves. **Classic** is the original Organic: the same shapes and broad flowing warp, mixed in OKLab so it no longer goes muddy. The slider sets how far colors are pulled or how high the waves run, Softness runs from defined shapes to a smooth haze, Swirl adds a vortex, and Shuffle Flow picks new directions.
+- **Mesh** is a true gradient mesh: a 3 × 3 or 4 × 4 grid of points, each with its own color, joined by a smooth surface in OKLab. The tray turns into a small grid that mirrors the points. Click a point (on the canvas or in the tray), then click colors in your collections to paint it; the selection steps to the next point, so a few clicks fill the grid. Double-click a point for its color popover. Drag points to bend the grid into curved, directional seams. Shuffle Colors rearranges the colors, and Softness runs from crisp seams through a classic mesh to a hazy wash. The first time a gradient becomes a mesh, its colors seed the points; older Mesh files open as the nearest grid.
 - **Linear** fades along an angle, blending in OKLab. Color Arc bends each transition through a nearby contrasting tone; set it to 0 for a straight blend. (Magic Linear files open here.)
 - **Tonal** turns one color into a flowing family of lighter, deeper and gently hue-shifted tones. (Formerly Magic Single.)
 - **Glow** radiates from a draggable center that can sit off the canvas.

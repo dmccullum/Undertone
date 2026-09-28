@@ -174,11 +174,25 @@ struct InspectorView: View {
     @ViewBuilder private var styleControls: some View {
         switch model.recipe.mode {
         case .organic:
-            SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Flow")
+                    .font(.caption)
+                Picker("Flow", selection: $model.recipe.organicFlow) {
+                    ForEach(OrganicFlow.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .help("Still melts the colors in place, Pull drags them like a brush, Wave ripples the borders, Classic is the original Organic")
+            }
+            if model.recipe.organicFlow != .still {
+                SliderControl(title: organicStrengthTitle, value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            }
             SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
             SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
-            Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
-                .help("Reshape the flow without moving your colors")
+            if model.recipe.organicFlow != .still || model.recipe.swirl > 0 {
+                Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
+                    .help("New directions for the flow and swirl, without moving your colors")
+            }
         case .mesh:
             VStack(alignment: .leading, spacing: 6) {
                 Text("Grid")
@@ -201,7 +215,7 @@ struct InspectorView: View {
                     Text("Shuffle Colors").frame(maxWidth: .infinity)
                 }
                 .help("Deal your colors across the points in a new arrangement")
-                .disabled(model.recipe.stops.count < 2)
+                .disabled(Set(model.meshVertices.map(\.hex)).count < 2)
             }
             Text(meshCaption)
                 .font(.caption)
@@ -243,13 +257,16 @@ struct InspectorView: View {
         SliderControl(title: "Position", value: $model.recipe.gradientPosition, range: 0...1, valueText: percent(model.recipe.gradientPosition))
     }
 
-    private var meshCaption: String {
-        let points = model.meshSize * model.meshSize
-        switch model.recipe.stops.count {
-        case 0: return "Add colors to the tray to fill the \(points) points."
-        case 1: return "One color fills all \(points) points. Add another to shape the mesh."
-        case let count: return "\(count) colors flow across \(points) points. Drag a point to bend the grid; click one to pick its color."
+    private var organicStrengthTitle: String {
+        switch model.recipe.organicFlow {
+        case .pull: "Pull"
+        case .wave: "Wave height"
+        case .still, .classic: "Flow"
         }
+    }
+
+    private var meshCaption: String {
+        "Click a point on the canvas or in the tray, then click colors in your collections to paint it; it moves to the next point. Double-click a point for more colors. Drag points to bend the grid."
     }
 
     private func percent(_ value: Double) -> String {
