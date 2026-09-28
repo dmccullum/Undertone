@@ -94,11 +94,11 @@ final class MetalRenderer: @unchecked Sendable {
         var waves: [SIMD4<Float>] = []
         if let organic = scene.organic {
             for index in organic.xs.indices {
-                stops.append(SIMD4(Float(organic.labs[index].lightness), Float(organic.labs[index].a), Float(organic.labs[index].b), 0))
+                stops.append(SIMD4(Float(organic.labs[index].lightness), Float(organic.labs[index].a), Float(organic.labs[index].b), Float(organic.chromas[index])))
                 stops.append(SIMD4(Float(organic.xs[index]), Float(organic.ys[index]), Float(organic.weights[index]), 0))
             }
             waves = organic.waves.map { SIMD4(Float($0.dx), Float($0.dy), Float($0.frequency), Float($0.phase)) }
-            set(.organicFalloff, organic.falloff); set(.organicFlowStep, organic.flowStep)
+            set(.organicCore, organic.core); set(.organicFlowStep, organic.flowStep)
             set(.organicSwirlStrength, organic.swirlStrength)
             set(.organicSwirlCenterX, organic.swirlCenterX); set(.organicSwirlCenterY, organic.swirlCenterY)
             set(.flowSteps, GradientRenderer.OrganicField.flowSteps)

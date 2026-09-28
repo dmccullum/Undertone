@@ -8,7 +8,7 @@ enum MetalFloat: Int, CaseIterable {
     case centerX, centerY, fadeWidth
     case axisX, axisY, crossX, crossY, position, flow, phase
     case softnessCore, swirlStrength, swirlCenterX, swirlCenterY
-    case organicFalloff, organicFlowStep, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
+    case organicCore, organicFlowStep, organicSwirlStrength, organicSwirlCenterX, organicSwirlCenterY
     case meshScaleX, meshScaleY
     case emptyRed, emptyGreen, emptyBlue
 }
@@ -96,8 +96,8 @@ enum MetalShaders {
         return in.palette[index].rgb;
     }
 
-    static float3 organicColor(const thread Inputs &in, float x, float y) {
-        float px = x, py = y;
+    static float3 organicColor(const thread Inputs &in, int column, int row, float x, float y) {
+        float px = x + in.xWarp[row], py = y + in.yWarp[column];
         float step = in.f[F_organicFlowStep];
         if (step > 0) {
             for (int s = 0; s < in.i[I_flowSteps]; s++) {
@@ -121,24 +121,25 @@ enum MetalShaders {
             px = cx + dx * cosT - dy * sinT;
             py = cy + dx * sinT + dy * cosT;
         }
-        int count = in.i[I_stopCount];
-        float nearest = INFINITY;
-        for (int s = 0; s < count; s++) {
-            float4 place = in.stops[s * 2 + 1];
-            float dx = px - place.x, dy = py - place.y;
-            nearest = min(nearest, dx * dx + dy * dy);
-        }
-        float total = 0;
+        float total = 0, chroma = 0;
         float3 lab = float3(0);
-        float falloff = in.f[F_organicFalloff];
-        for (int s = 0; s < count; s++) {
+        float core = in.f[F_organicCore];
+        for (int s = 0; s < in.i[I_stopCount]; s++) {
             float4 place = in.stops[s * 2 + 1];
             float dx = px - place.x, dy = py - place.y;
-            float weight = place.z * exp(-(dx * dx + dy * dy - nearest) * falloff);
+            float distance = dx * dx + dy * dy + core;
+            float weight = place.z / (distance * distance);
             total += weight;
             lab += in.stops[s * 2].xyz * weight;
+            chroma += in.stops[s * 2].w * weight;
         }
-        return oklabToSRGB(lab / total);
+        lab /= total;
+        float mixed = sqrt(lab.y * lab.y + lab.z * lab.z);
+        if (mixed > 1e-4f) {
+            float restore = 1 + (min(chroma / total / mixed, 1.8f) - 1) * 0.6f;
+            lab.yz *= restore;
+        }
+        return oklabToSRGB(lab);
     }
 
     static float3 tonalColor(const thread Inputs &in, int column, int row, float x, float y) {
@@ -243,7 +244,7 @@ enum MetalShaders {
             color = float3(in.f[F_emptyRed], in.f[F_emptyGreen], in.f[F_emptyBlue]);
         } else {
             switch (in.i[I_mode]) {
-            case 0: color = organicColor(in, x, y); break;
+            case 0: color = organicColor(in, column, row, x, y); break;
             case 1: color = meshColor(in, column, row, x, y); break;
             case 3: color = tonalColor(in, column, row, x, y); break;
             case 2: {

@@ -33,7 +33,7 @@ The window has three parts: the library sidebar on the left, the canvas in the m
 
 **Styles.** The inspector shows each style as a live thumbnail of your colors:
 
-- **Organic** is loose, liquid color: each point is a soft blob, blended in OKLab so mixes stay bright. Flow drags the borders around like paint in water and Swirl twists them; Shuffle Flow rerolls the current for a new happy accident.
+- **Organic** is loose, soft color: each point spreads a gentle field, blended in OKLab with saturation kept, so even the softest mixes stay colorful. Flow bends the borders into slow billows and Swirl twists them; Shuffle Flow rerolls the current for a new happy accident.
 - **Mesh** is a true gradient mesh. The tray colors fill a 3 × 3 or 4 × 4 grid of points in diagonal runs, and a smooth surface in OKLab runs through them. Drag a point to bend the grid into curved, directional seams; click one to give it any tray color. Shuffle Colors deals the palette across the points again. Softness runs from crisp seams through a classic mesh to a hazy wash. Mesh files from earlier versions open as the nearest grid.
 - **Linear** fades along an angle, blending in OKLab. Color Arc bends each transition through a nearby contrasting tone; set it to 0 for a straight blend. (Magic Linear files open here.)
 - **Tonal** turns one color into a flowing family of lighter, deeper and gently hue-shifted tones. (Formerly Magic Single.)
