@@ -32,6 +32,9 @@ import UniformTypeIdentifiers
     @Published private(set) var pointsRevealed = false
     /// The specific tray chip being hovered, emphasized among the revealed points.
     @Published var highlightedStopID: UUID?
+    /// Mesh: the point library clicks paint, and the mesh point being hovered in the tray.
+    @Published private(set) var selectedMeshPoint = 0
+    @Published var highlightedMeshPoint: Int?
     @Published var errorMessage: String?
 
     weak var undoManager: UndoManager?
@@ -612,8 +615,9 @@ import UniformTypeIdentifiers
 
     // MARK: - Color stops
 
-    /// How many times a color appears in the gradient. Tonal counts only its base color.
+    /// How many times a color appears in the gradient. Tonal counts only its base color; Mesh counts points.
     func count(of hex: String) -> Int {
+        if recipe.mode == .mesh { return meshVertices.filter { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }.count }
         let stops = recipe.mode == .tonal ? Array(recipe.stops.prefix(1)) : recipe.stops
         return stops.filter { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }.count
     }
@@ -622,8 +626,15 @@ import UniformTypeIdentifiers
 
     var canAddStop: Bool { recipe.mode == .tonal ? recipe.stops.isEmpty : recipe.stops.count < Self.maximumStops }
 
+    /// Whether a library click does something: Tonal swaps its base, Mesh paints a point.
+    var canUseLibraryColor: Bool { recipe.mode == .tonal || recipe.mode == .mesh || recipe.stops.count < Self.maximumStops }
+
     /// Library clicks always add; the same color can appear more than once.
     func addLibraryColor(_ color: LibraryColor) {
+        if recipe.mode == .mesh {
+            paintSelectedMeshPoint(color.hex)
+            return
+        }
         if recipe.mode == .tonal {
             setBaseColor(hex: color.hex)
             return
@@ -676,21 +687,26 @@ import UniformTypeIdentifiers
     var meshVertices: [MeshVertex] { MeshGrid.vertices(for: recipe) }
     var meshSize: Int { MeshGrid.clampedSize(recipe.meshSize) }
 
-    /// The tray color a mesh point shows.
-    func meshStop(at index: Int) -> ColorStop? {
+    /// The color a mesh point shows, or "" while it's unpainted.
+    func meshColor(at index: Int) -> String {
         let vertices = meshVertices
-        guard vertices.indices.contains(index),
-              let stop = MeshGrid.stopIndex(of: vertices[index], at: index, size: meshSize, in: recipe.stops) else { return nil }
-        return recipe.stops[stop]
+        return vertices.indices.contains(index) ? vertices[index].hex : ""
     }
 
-    /// Switches between a 3 × 3 and 4 × 4 grid, keeping the current bends and chosen colors.
+    /// Selects a mesh point: library clicks paint it, and the canvas and tray ring it.
+    func selectMeshPoint(_ index: Int) {
+        guard (0..<meshSize * meshSize).contains(index) else { return }
+        selectedMeshPoint = index
+    }
+
+    /// Switches between a 3 × 3 and 4 × 4 grid, keeping the current bends and colors.
     func setMeshSize(_ size: Int) {
         let size = MeshGrid.clampedSize(size)
         guard size != meshSize else { return }
         var updated = recipe
         updated.meshVertices = MeshGrid.resampled(meshVertices, from: meshSize, to: size)
         updated.meshSize = size
+        selectedMeshPoint = min(selectedMeshPoint, size * size - 1)
         recipe = updated
     }
 
@@ -704,28 +720,46 @@ import UniformTypeIdentifiers
         recipe.meshVertices = vertices
     }
 
-    /// Pins a mesh point to one tray color; nil returns it to the tray order.
-    func setMeshVertexColor(_ index: Int, stopID: UUID?) {
+    /// Paints one mesh point.
+    func setMeshColor(_ hex: String, at index: Int) {
+        guard let hex = Hex.normalized(hex) else { return }
         var vertices = meshVertices
-        guard vertices.indices.contains(index) else { return }
-        vertices[index].stopID = stopID
-        recipe.meshVertices = vertices
+        guard vertices.indices.contains(index), vertices[index].hex != hex else { return }
+        vertices[index].hex = hex
+        var updated = recipe
+        updated.meshVertices = vertices
+        updated.stops = Self.stops(following: vertices, keeping: recipe.stops)
+        recipe = updated
     }
 
-    /// Deals the tray colors across the mesh points in a new arrangement, keeping every color's share
-    /// even. Points get pinned colors, which clicking a point can still change.
-    func shuffleMeshColors() {
-        guard !recipe.stops.isEmpty else { return }
-        let size = meshSize
-        let current = (0..<size * size).map { meshStop(at: $0)?.id }
-        var shares = (0..<size * size).map { recipe.stops[MeshGrid.automaticStopIndex(at: $0, size: size, count: recipe.stops.count)].id }
-        // Reshuffle until something actually moves (a one-color tray has nothing to move).
-        for _ in 0..<8 where Set(shares).count > 1 {
-            shares.shuffle()
-            if shares != current { break }
+    /// A library click in Mesh: paints the selected point, then moves to the next one in reading order,
+    /// so clicking colors fills the grid.
+    func paintSelectedMeshPoint(_ hex: String) {
+        setMeshColor(hex, at: selectedMeshPoint)
+        selectedMeshPoint = (selectedMeshPoint + 1) % (meshSize * meshSize)
+    }
+
+    /// The gradient's colors while it's a mesh: every distinct point color (up to eight) in reading
+    /// order. Colors already in the gradient keep their identity and Organic positions, so switching
+    /// styles carries the mesh's palette across.
+    private static func stops(following vertices: [MeshVertex], keeping current: [ColorStop]) -> [ColorStop] {
+        var seen: Set<String> = []
+        let colors = vertices.map(\.hex).filter { !$0.isEmpty && seen.insert($0.uppercased()).inserted }.prefix(maximumStops)
+        let spots: [(Double, Double)] = [(0.18, 0.18), (0.82, 0.20), (0.22, 0.80), (0.78, 0.82), (0.50, 0.15), (0.50, 0.85), (0.15, 0.50), (0.85, 0.50)]
+        return colors.enumerated().map { index, hex in
+            current.first { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }
+                ?? ColorStop(hex: hex, x: spots[index % spots.count].0, y: spots[index % spots.count].1)
         }
+    }
+
+    /// Deals the point colors across the grid in a new arrangement.
+    func shuffleMeshColors() {
         var vertices = meshVertices
-        for index in vertices.indices { vertices[index].stopID = shares[index] }
+        let current = vertices.map(\.hex)
+        guard Set(current).count > 1 else { return }
+        var shuffled = current
+        repeat { shuffled.shuffle() } while shuffled == current
+        for index in vertices.indices { vertices[index].hex = shuffled[index] }
         recipe.meshVertices = vertices
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
@@ -738,7 +772,7 @@ import UniformTypeIdentifiers
     private static func straightened(_ recipe: GradientRecipe) -> [MeshVertex] {
         let size = MeshGrid.clampedSize(recipe.meshSize)
         return zip(MeshGrid.regular(size: size), MeshGrid.vertices(for: recipe)).map { even, vertex in
-            MeshVertex(x: even.x, y: even.y, stopID: vertex.stopID)
+            MeshVertex(x: even.x, y: even.y, hex: vertex.hex)
         }
     }
 

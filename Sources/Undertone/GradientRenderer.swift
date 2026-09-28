@@ -98,7 +98,8 @@ enum GradientRenderer {
             self.height = height
             mode = recipe.mode
             let suppliedStops = recipe.stops.map(RenderStop.init)
-            hasColors = !suppliedStops.isEmpty
+            // A mesh has color once any point is painted, whether or not the tray has colors.
+            hasColors = recipe.mode == .mesh ? MeshGrid.vertices(for: recipe).contains { !$0.hex.isEmpty } : !suppliedStops.isEmpty
             let stops = recipe.mode == .tonal && hasColors
                 ? magicSingleStops(base: suppliedStops[0], variation: recipe.colorArc, seed: recipe.seed)
                 : suppliedStops
@@ -319,9 +320,10 @@ enum GradientRenderer {
         init(recipe: GradientRecipe, width: Int, height: Int) {
             let size = MeshGrid.clampedSize(recipe.meshSize)
             let vertices = MeshGrid.vertices(for: recipe)
-            let labs = vertices.enumerated().map { index, vertex -> OKLab in
-                guard let stop = MeshGrid.stopIndex(of: vertex, at: index, size: size, in: recipe.stops) else { return OKLab(RGB(red: 0, green: 0, blue: 0)) }
-                return OKLab(RenderStop(recipe.stops[stop]).color)
+            let labs = vertices.map { vertex -> OKLab in
+                guard Hex.normalized(vertex.hex) != nil else { return OKLab(Scene.emptyColor) }
+                let rgb = Hex.components(vertex.hex)
+                return OKLab(RGB(red: rgb.red, green: rgb.green, blue: rgb.blue))
             }
             let samples = (size - 1) * Self.subdivisions + 1
             // Softness: the lower half sets how long each color holds around its point (crisp seams

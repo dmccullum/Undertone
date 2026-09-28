@@ -366,12 +366,12 @@ private struct CollectionSection: View {
 
     private func swatch(_ color: LibraryColor) -> some View {
         let count = model.count(of: color.hex)
-        let canAdd = model.recipe.mode == .tonal || model.recipe.stops.count < StudioModel.maximumStops
+        let canAdd = model.canUseLibraryColor
         return SwatchTile(color: color, count: count, isEnabled: canAdd) {
             model.addLibraryColor(color)
         }
         .contextMenu {
-            Button("Add to Gradient") { model.addLibraryColor(color) }
+            Button(model.recipe.mode == .mesh ? "Paint Selected Point" : "Add to Gradient") { model.addLibraryColor(color) }
                 .disabled(!canAdd)
             Button("Copy Hex") {
                 NSPasteboard.general.clearContents()

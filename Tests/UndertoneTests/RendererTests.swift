@@ -160,15 +160,20 @@ final class RendererTests: XCTestCase {
         assertPixel(data, width: 41, x: 40, y: 40, matches: "F2C66D")
     }
 
-    func testMeshPointsCanBePinnedToATrayColor() throws {
+    func testMeshPointsOwnTheirColors() throws {
         var recipe = testRecipe()
         recipe.mode = .mesh
         recipe.grain = 0
-        var vertices = MeshGrid.regular(size: 3)
-        vertices[0].stopID = recipe.stops[2].id
+        var vertices = MeshGrid.seeded(size: 3, colors: recipe.stops.map(\.hex))
+        vertices[0].hex = "2068FF"
         recipe.meshVertices = vertices
         let data = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
-        assertPixel(data, width: 41, x: 0, y: 0, matches: "F2C66D")
+        assertPixel(data, width: 41, x: 0, y: 0, matches: "2068FF")
+
+        // A painted mesh renders even with no colors in the gradient's list.
+        recipe.stops = []
+        let alone = try pixels(in: GradientRenderer.render(recipe, width: 41, height: 41))
+        assertPixel(alone, width: 41, x: 0, y: 0, matches: "2068FF")
     }
 
     /// The top of Mesh's Softness range blurs past the points for a hazier blend.
@@ -191,7 +196,7 @@ final class RendererTests: XCTestCase {
         recipe.mode = .mesh
         recipe.grain = 0
         let even = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 64))
-        var vertices = MeshGrid.regular(size: 3)
+        var vertices = MeshGrid.seeded(size: 3, colors: recipe.stops.map(\.hex))
         vertices[4].x = 0.8
         vertices[4].y = 0.3
         recipe.meshVertices = vertices

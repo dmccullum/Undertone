@@ -1,10 +1,19 @@
 import Foundation
 
-/// One control point of the Mesh style's grid. Positions are fractions of the canvas.
+/// One control point of the Mesh style's grid. Each point owns its color, like a mesh fill in a
+/// design tool. Positions are fractions of the canvas; an empty `hex` is an unpainted point.
 struct MeshVertex: Codable, Equatable, Sendable {
     var x: Double
     var y: Double
-    /// The tray color this point shows. Nil takes its color from the automatic fill.
+    var hex: String = ""
+}
+
+/// How mesh points were saved before they owned their colors (recipe version 4): a pinned tray color
+/// or none, meaning the automatic fill.
+struct LegacyMeshVertex: Decodable {
+    var x: Double
+    var y: Double
+    var hex: String?
     var stopID: UUID?
 }
 
@@ -21,20 +30,34 @@ enum MeshGrid {
         return (0..<size * size).map { MeshVertex(x: Double($0 % size) / last, y: Double($0 / size) / last) }
     }
 
-    /// The recipe's points, or an even grid when none are stored (or they don't fit the size).
+    /// The recipe's points. Until the mesh is edited none are stored, and an even grid is seeded from
+    /// the gradient's colors.
     static func vertices(for recipe: GradientRecipe) -> [MeshVertex] {
         let size = clampedSize(recipe.meshSize)
-        return recipe.meshVertices.count == size * size ? recipe.meshVertices : regular(size: size)
+        return recipe.meshVertices.count == size * size ? recipe.meshVertices : seeded(size: size, colors: recipe.stops.map(\.hex))
     }
 
-    /// Which tray color a point shows, or nil when the tray is empty.
-    static func stopIndex(of vertex: MeshVertex, at index: Int, size: Int, in stops: [ColorStop]) -> Int? {
-        guard !stops.isEmpty else { return nil }
-        if let id = vertex.stopID, let match = stops.firstIndex(where: { $0.id == id }) { return match }
-        return automaticStopIndex(at: index, size: size, count: stops.count)
+    /// An even grid painted with `colors` by the automatic fill.
+    static func seeded(size: Int, colors: [String]) -> [MeshVertex] {
+        regular(size: size).enumerated().map { index, vertex in
+            var painted = vertex
+            if !colors.isEmpty { painted.hex = colors[automaticStopIndex(at: index, size: size, count: colors.count)] }
+            return painted
+        }
     }
 
-    /// The automatic fill: the tray colors, in order, each take an equal, connected run of points
+    /// Resolves points saved before they owned their colors: a pinned tray color, else the automatic fill.
+    static func resolved(_ legacy: [LegacyMeshVertex], size: Int, stops: [ColorStop]) -> [MeshVertex] {
+        legacy.enumerated().map { index, vertex in
+            var hex = vertex.hex ?? ""
+            if hex.isEmpty, !stops.isEmpty {
+                hex = stops.first { $0.id == vertex.stopID }?.hex ?? stops[automaticStopIndex(at: index, size: size, count: stops.count)].hex
+            }
+            return MeshVertex(x: vertex.x, y: vertex.y, hex: hex)
+        }
+    }
+
+    /// The automatic fill: the colors, in order, each take an equal, connected run of points
     /// along a zigzag through the grid's diagonals. Any number of colors on either grid reads as a
     /// deliberate diagonal flow from the top left, never a scatter of repeats.
     static func automaticStopIndex(at index: Int, size: Int, count: Int) -> Int {
@@ -59,15 +82,15 @@ enum MeshGrid {
         guard !stops.isEmpty else { return [] }
         return regular(size: size).map { vertex in
             var mapped = vertex
-            mapped.stopID = stops.min { lhs, rhs in
+            mapped.hex = stops.min { lhs, rhs in
                 hypot(lhs.x - vertex.x, lhs.y - vertex.y) < hypot(rhs.x - vertex.x, rhs.y - vertex.y)
-            }?.id
+            }?.hex ?? ""
             return mapped
         }
     }
 
     /// Changes the grid size, keeping its bends: the new points sit on the current surface and keep
-    /// the nearest point's chosen color.
+    /// the nearest point's color.
     static func resampled(_ vertices: [MeshVertex], from oldSize: Int, to newSize: Int) -> [MeshVertex] {
         let xs = vertices.map(\.x), ys = vertices.map(\.y)
         let last = Double(newSize - 1), oldLast = Double(oldSize - 1)
@@ -77,7 +100,7 @@ enum MeshGrid {
             return MeshVertex(
                 x: min(1, max(0, surface(xs, size: oldSize, u: u, v: v, monotone: true))),
                 y: min(1, max(0, surface(ys, size: oldSize, u: u, v: v, monotone: true))),
-                stopID: vertices[nearest].stopID
+                hex: vertices[nearest].hex
             )
         }
     }

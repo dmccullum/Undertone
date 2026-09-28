@@ -201,7 +201,7 @@ struct InspectorView: View {
                     Text("Shuffle Colors").frame(maxWidth: .infinity)
                 }
                 .help("Deal your colors across the points in a new arrangement")
-                .disabled(model.recipe.stops.count < 2)
+                .disabled(Set(model.meshVertices.map(\.hex)).count < 2)
             }
             Text(meshCaption)
                 .font(.caption)
@@ -244,12 +244,7 @@ struct InspectorView: View {
     }
 
     private var meshCaption: String {
-        let points = model.meshSize * model.meshSize
-        switch model.recipe.stops.count {
-        case 0: return "Add colors to the tray to fill the \(points) points."
-        case 1: return "One color fills all \(points) points. Add another to shape the mesh."
-        case let count: return "\(count) colors flow across \(points) points. Drag a point to bend the grid; click one to pick its color."
-        }
+        "Click a point on the canvas or in the tray, then click colors in your collections to paint it; it moves to the next point. Double-click a point for more colors. Drag points to bend the grid."
     }
 
     private func percent(_ value: Double) -> String {
