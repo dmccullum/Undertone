@@ -50,7 +50,12 @@ enum RenderEngine {
         crowded.stops += ["FF006E", "3A86FF", "FFBE0B", "8338EC"].enumerated().map { ColorStop(hex: $1, x: 0.2 * Double($0 + 1), y: 0.5) }
         crowded.flow = 1
         crowded.softness = 0.1
+        crowded.organicFlow = .pull
         recipes.append(crowded)
+        var wave = base
+        wave.organicFlow = .wave
+        wave.flow = 1
+        recipes.append(wave)
         var mesh = base
         mesh.mode = .mesh
         mesh.meshSize = 4

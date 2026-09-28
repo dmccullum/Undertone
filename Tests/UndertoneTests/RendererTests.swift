@@ -230,6 +230,26 @@ final class RendererTests: XCTestCase {
         XCTAssertGreaterThan(luminance, 0.8 * (0.2126 + 0.7152) / 2, "An RGB average would be about 0.2")
     }
 
+    /// Still ignores Flow; Pull and Wave each move the colors their own way.
+    func testOrganicFlowStyles() throws {
+        var recipe = testRecipe()
+        recipe.grain = 0
+        func render(_ flow: OrganicFlow, strength: Double) throws -> Data {
+            recipe.organicFlow = flow
+            recipe.flow = strength
+            return try pixels(in: GradientRenderer.render(recipe, width: 48, height: 64))
+        }
+        XCTAssertEqual(try render(.still, strength: 0.2), try render(.still, strength: 1))
+        let still = try render(.still, strength: 1), pull = try render(.pull, strength: 1), wave = try render(.wave, strength: 1)
+        XCTAssertNotEqual(still, pull)
+        XCTAssertNotEqual(still, wave)
+        XCTAssertNotEqual(pull, wave)
+        XCTAssertEqual(try render(.pull, strength: 0), still, "No pull is Still")
+        XCTAssertEqual(GradientRecipe().organicFlow, .still)
+        let old = try JSONDecoder().decode(GradientRecipe.self, from: Data(#"{"mode": "organic"}"#.utf8))
+        XCTAssertEqual(old.organicFlow, .still, "Older files open as Still")
+    }
+
     func testOrganicAndMeshLookClearlyDifferent() throws {
         var recipe = testRecipe()
         recipe.grain = 0
