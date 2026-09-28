@@ -31,8 +31,10 @@ final class RendererTests: XCTestCase {
         XCTAssertNotEqual(first, second)
     }
 
+    /// Organic, Mesh and Tonal use the seed to shape their flow field, so check a style that doesn't.
     func testSeedDoesNotAffectGradientWhenGrainIsDisabled() throws {
         var firstRecipe = testRecipe(seed: 10)
+        firstRecipe.mode = .radial
         firstRecipe.grain = 0
         var secondRecipe = firstRecipe
         secondRecipe.seed = 11
@@ -59,9 +61,9 @@ final class RendererTests: XCTestCase {
         var recipe = testRecipe()
         recipe.mode = .linear
         recipe.grain = 0
-        recipe.angleDegrees = 0
+        recipe.startX = 0; recipe.startY = 0.5; recipe.endX = 1; recipe.endY = 0.5
         let horizontal = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
-        recipe.angleDegrees = 90
+        recipe.startX = 0.5; recipe.startY = 0; recipe.endX = 0.5; recipe.endY = 1
         let vertical = try pixels(in: GradientRenderer.render(recipe, width: 64, height: 40))
 
         XCTAssertNotEqual(horizontal, vertical)
