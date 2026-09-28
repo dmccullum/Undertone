@@ -217,22 +217,22 @@ enum GradientRenderer {
         return RGB(red: red / weightTotal, green: green / weightTotal, blue: blue / weightTotal)
     }
 
-    /// Organic: color that flows like ink in water. The canvas is bent by a fractal noise field that is
-    /// itself bent by noise (nested domain warping), so borders curl into ribbons and tendrils in every
-    /// direction; the points only set where each color roughly lives. Blending is in OKLab with lost
-    /// saturation partly restored, so mixes stay vivid. Flow sets how far the color travels, Softness
-    /// how wide the blends are, Swirl adds a vortex, and every seed is its own marbling.
+    /// Organic: colors that stir into each other like paint. Every point carries a gentle current, a
+    /// smooth swirl centered just off the point that fades with distance, and the canvas is twisted
+    /// through all of them in a few small steps. Borders between colors bend, wrap and spiral with only
+    /// large, smooth shapes (no texture), and because each current rides on its point, moving a point
+    /// morphs the whole composition around it. Blending is in OKLab with lost saturation partly
+    /// restored, so mixes stay vivid.
     struct OrganicField: Sendable {
-        static let octaves = 3
+        /// One point's current: its center, how far it turns the canvas per step, and 1 / radius².
+        struct Current: Sendable { let x: Double; let y: Double; let turn: Double; let falloff: Double }
+        static let steps = 3
 
         let labs: [OKLab]
         let chromas: [Double]
         let xs: [Double], ys: [Double], weights: [Double]
         let core: Double
-        let flowAmount: Double
-        /// How much each finer octave keeps: softness smooths the fine detail out of the flow.
-        let persistence: Double
-        let noiseSeed: UInt32
+        let currents: [Current]
         let swirlStrength: Double, swirlCenterX: Double, swirlCenterY: Double
 
         init(recipe: GradientRecipe, stops: [RenderStop]) {
@@ -241,49 +241,39 @@ enum GradientRenderer {
             chromas = labs.map { sqrt($0.a * $0.a + $0.b * $0.b) }
             xs = stops.map(\.x); ys = stops.map(\.y); weights = stops.map(\.weight)
             let softness = GradientRenderer.clamp(recipe.softness, lower: 0, upper: 1)
-            core = 0.0015 + softness * softness * 0.4
-            flowAmount = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1) * 0.5
-            persistence = 0.42 - softness * 0.22
-            noiseSeed = UInt32(truncatingIfNeeded: recipe.seed ^ (recipe.seed >> 32)) &+ 0x0A11_CE00
+            core = 0.002 + softness * softness * 0.45
+            let flow = GradientRenderer.clamp(recipe.flow, lower: 0, upper: 1)
+            // The seed sets each current's spin, strength and offset, so Shuffle Flow restirs the paint
+            // without moving any color.
+            currents = flow == 0 ? [] : stops.enumerated().map { index, stop in
+                let salt = UInt64(500 + index * 4)
+                let spin = GradientRenderer.seedUnit(recipe.seed, salt: salt) < 0.5 ? -1.0 : 1.0
+                let strength = 0.55 + GradientRenderer.seedUnit(recipe.seed, salt: salt + 1) * 0.45
+                let angle = GradientRenderer.seedUnit(recipe.seed, salt: salt + 2) * .pi * 2
+                let radius = 0.26 + GradientRenderer.seedUnit(recipe.seed, salt: salt + 3) * 0.14
+                return Current(
+                    x: stop.x + cos(angle) * 0.11, y: stop.y + sin(angle) * 0.11,
+                    turn: spin * strength * flow * 1.7 / Double(Self.steps),
+                    falloff: 1 / (radius * radius)
+                )
+            }
             let swirl = GradientRenderer.clamp(recipe.swirl, lower: 0, upper: 1)
             swirlStrength = swirl * swirl * 8.0 * ((recipe.seed & 2) == 0 ? 1.0 : -1.0)
             swirlCenterX = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 91) - 0.5) * 0.5
             swirlCenterY = 0.5 + (GradientRenderer.seedUnit(recipe.seed, salt: 92) - 0.5) * 0.5
         }
 
-        /// Smooth value noise in -1...1 on an integer-hashed lattice (quintic fade, so no creases).
-        static func noise(_ x: Double, _ y: Double, _ seed: UInt32) -> Double {
-            let cellX = floor(x), cellY = floor(y)
-            let fx = x - cellX, fy = y - cellY
-            let ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10), uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10)
-            let ix = Int(cellX), iy = Int(cellY)
-            let a = GradientRenderer.hashNoise(x: ix, y: iy, seed: seed), b = GradientRenderer.hashNoise(x: ix + 1, y: iy, seed: seed)
-            let c = GradientRenderer.hashNoise(x: ix, y: iy + 1, seed: seed), d = GradientRenderer.hashNoise(x: ix + 1, y: iy + 1, seed: seed)
-            return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy
-        }
-
-        /// Fractal noise: octaves at doubling frequency, each rotated so no lattice direction shows.
-        static func fbm(_ x: Double, _ y: Double, _ seed: UInt32, persistence: Double) -> Double {
-            var px = x, py = y, amplitude = 0.6, total = 0.0
-            for octave in 0..<octaves {
-                total += amplitude * noise(px, py, seed &+ UInt32(octave))
-                let rx = 0.8 * px - 0.6 * py, ry = 0.6 * px + 0.8 * py
-                px = rx * 2.03 + 1.7; py = ry * 2.03 + 9.2
-                amplitude *= persistence
-            }
-            return total
-        }
-
         func color(x: Double, y: Double) -> RGB {
             var px = x, py = y
-            if flowAmount > 0 {
-                // Nested warp: q bends the space r is sampled in, and r bends the canvas.
-                let bx = x * 1.35, by = y * 1.35, p = persistence
-                let qx = Self.fbm(bx, by, noiseSeed, persistence: p), qy = Self.fbm(bx + 5.2, by + 1.3, noiseSeed &+ 17, persistence: p)
-                let rx = Self.fbm(bx + 2.6 * qx + 1.7, by + 2.6 * qy + 9.2, noiseSeed &+ 31, persistence: p)
-                let ry = Self.fbm(bx + 2.6 * qx + 8.3, by + 2.6 * qy + 2.8, noiseSeed &+ 47, persistence: p)
-                px += rx * flowAmount
-                py += ry * flowAmount
+            // Stir: each step turns the canvas a little around every current, strongest near its center.
+            for _ in 0..<Self.steps {
+                for current in currents {
+                    let dx = px - current.x, dy = py - current.y
+                    let angle = current.turn * exp(-(dx * dx + dy * dy) * current.falloff)
+                    let cosA = cos(angle), sinA = sin(angle)
+                    px = current.x + dx * cosA - dy * sinA
+                    py = current.y + dx * sinA + dy * cosA
+                }
             }
             if swirlStrength != 0 {
                 let dx = px - swirlCenterX, dy = py - swirlCenterY
