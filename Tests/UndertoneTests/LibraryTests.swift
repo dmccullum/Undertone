@@ -331,8 +331,8 @@ final class LibraryTests: XCTestCase {
         """
         let recipe = try StudioModel.validatedRecipe(from: Data(json.utf8))
         XCTAssertEqual(recipe.meshVertices.count, 9)
-        XCTAssertEqual(recipe.meshVertices.first?.stopID, recipe.stops[0].id)
-        XCTAssertEqual(recipe.meshVertices.last?.stopID, recipe.stops[1].id)
+        XCTAssertEqual(recipe.meshVertices.first?.hex, "012169")
+        XCTAssertEqual(recipe.meshVertices.last?.hex, "F0F5FB")
         XCTAssertEqual(recipe.version, GradientRecipe.currentVersion)
 
         let reencoded = try JSONDecoder().decode(GradientRecipe.self, from: JSONEncoder().encode(recipe))
@@ -346,7 +346,7 @@ final class LibraryTests: XCTestCase {
         model.setMode(.mesh)
 
         model.moveMeshVertex(0, x: 0.4, y: 0.3)
-        XCTAssertEqual(model.meshVertices[0], MeshVertex(x: 0, y: 0), "Corners stay put")
+        XCTAssertEqual([model.meshVertices[0].x, model.meshVertices[0].y], [0, 0], "Corners stay put")
         model.moveMeshVertex(1, x: 0.7, y: 0.4)
         XCTAssertEqual(model.meshVertices[1].y, 0, "Top edge points slide along the edge")
         XCTAssertEqual(model.meshVertices[1].x, 0.7)
@@ -354,12 +354,12 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.meshVertices[4].x, 0.62)
 
         let stop = try XCTUnwrap(model.recipe.stops.last)
-        model.setMeshVertexColor(4, stopID: stop.id)
-        XCTAssertEqual(model.meshStop(at: 4)?.id, stop.id)
+        model.setMeshColor(stop.hex, at: 4)
+        XCTAssertEqual(model.meshColor(at: 4), stop.hex)
 
         model.setMeshSize(4)
         XCTAssertEqual(model.meshVertices.count, 16)
-        XCTAssertEqual(model.meshVertices[0], MeshVertex(x: 0, y: 0))
+        XCTAssertEqual([model.meshVertices[0].x, model.meshVertices[0].y], [0, 0])
         XCTAssertEqual(model.meshVertices[15].x, 1)
         model.moveMeshVertex(5, x: 0.95, y: 0.95)
         XCTAssertLessThan(model.meshVertices[5].x, model.meshVertices[6].x, "Points stay between their neighbors, so the grid can't fold")
@@ -403,11 +403,59 @@ final class LibraryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         model.setMode(.mesh)
-        let before = (0..<9).compactMap { model.meshStop(at: $0)?.id }
+        let before = model.meshVertices.map(\.hex)
         model.shuffleMeshColors()
-        let after = (0..<9).compactMap { model.meshStop(at: $0)?.id }
-        XCTAssertEqual(before.sorted { $0.uuidString < $1.uuidString }, after.sorted { $0.uuidString < $1.uuidString })
+        let after = model.meshVertices.map(\.hex)
+        XCTAssertEqual(before.sorted(), after.sorted())
         XCTAssertNotEqual(before, after)
-        XCTAssertTrue(model.meshVertices.allSatisfy { $0.stopID != nil })
+    }
+
+    /// Mesh points own their colors: library clicks paint the selected point and step to the next, and
+    /// the gradient's color list follows what's on the grid.
+    @MainActor func testLibraryClicksPaintMeshPointsInOrder() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        let undoManager = UndoManager()
+        model.undoManager = undoManager
+        model.setMode(.mesh)
+        let blue = LibraryColor.coldwellBanker[0], tide = LibraryColor.coldwellBanker[3]
+
+        model.selectMeshPoint(3)
+        model.addLibraryColor(blue)
+        model.addLibraryColor(tide)
+        XCTAssertEqual(model.meshColor(at: 3), blue.hex)
+        XCTAssertEqual(model.meshColor(at: 4), tide.hex)
+        XCTAssertEqual(model.selectedMeshPoint, 5)
+        XCTAssertEqual(model.count(of: blue.hex), 1)
+        XCTAssertTrue(model.recipe.stops.contains { $0.hex == blue.hex } && model.recipe.stops.contains { $0.hex == tide.hex })
+
+        // Painting every point blue leaves blue as the only color in the list.
+        for index in 0..<9 { model.setMeshColor(blue.hex, at: index) }
+        XCTAssertEqual(model.recipe.stops.map(\.hex), [blue.hex])
+        XCTAssertEqual(model.count(of: blue.hex), 9)
+
+        model.selectMeshPoint(8)
+        model.addLibraryColor(tide)
+        XCTAssertEqual(model.selectedMeshPoint, 0, "Painting wraps back to the first point")
+    }
+
+    /// Version 4 files named a tray color per point, or none for the automatic fill.
+    @MainActor func testVersionFourMeshPointsResolveToColors() throws {
+        let json = """
+        {"mode": "mesh", "version": 4, "meshSize": 3, "stops": [
+            {"id": "00000000-0000-0000-0000-000000000001", "hex": "012169", "x": 0.1, "y": 0.1},
+            {"id": "00000000-0000-0000-0000-000000000002", "hex": "F0F5FB", "x": 0.9, "y": 0.9}
+        ], "meshVertices": [
+            {"x": 0, "y": 0, "stopID": "00000000-0000-0000-0000-000000000002"}, {"x": 0.5, "y": 0}, {"x": 1, "y": 0},
+            {"x": 0, "y": 0.5}, {"x": 0.5, "y": 0.5}, {"x": 1, "y": 0.5},
+            {"x": 0, "y": 1}, {"x": 0.5, "y": 1}, {"x": 1, "y": 1}
+        ]}
+        """
+        let recipe = try StudioModel.validatedRecipe(from: Data(json.utf8))
+        XCTAssertEqual(recipe.meshVertices[0].hex, "F0F5FB", "A pinned point keeps its color")
+        XCTAssertEqual(recipe.meshVertices[8].hex, "F0F5FB")
+        XCTAssertEqual(recipe.meshVertices[1].hex, "012169", "Unpinned points take the automatic fill")
+        XCTAssertEqual(recipe.version, GradientRecipe.currentVersion)
     }
 }
