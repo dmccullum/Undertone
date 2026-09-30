@@ -21,6 +21,7 @@ import SwiftUI
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     private static func style(_ window: NSWindow) {
+        guard window.identifier != AboutWindowController.windowIdentifier else { return }
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
@@ -44,8 +45,20 @@ struct UndertoneApp: App {
         .defaultSize(width: 1_320, height: 860)
         .windowToolbarStyle(.unified)
         .commands {
+            AboutCommands()
             SidebarCommands()
             StudioCommands(model: model)
+        }
+    }
+}
+
+private struct AboutCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Undertone") {
+                NSApp.activate(ignoringOtherApps: true)
+                AboutWindowController.shared.show()
+            }
         }
     }
 }
