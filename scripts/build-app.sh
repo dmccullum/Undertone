@@ -8,8 +8,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Undertone "$APP/Contents/MacOS/Undertone"
 
 # Compile the Icon Composer icon (Icon/Undertone.icon) into Assets.car + Undertone.icns.
+# The path must be absolute: actool's icon exporter fails on a relative one and writes nothing.
 # Assets.car carries the modern (Liquid Glass) icon; the .icns is the fallback on older systems.
-xcrun actool "Icon/Undertone.icon" \
+xcrun actool "$PWD/Icon/Undertone.icon" \
     --compile "$APP/Contents/Resources" \
     --app-icon "Undertone" \
     --output-partial-info-plist "$PWD/build/icon-partial.plist" \
