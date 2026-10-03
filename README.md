@@ -25,6 +25,8 @@ Open `Package.swift` in Xcode to develop with Apple's tooling. `swift test` runs
 
 The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Randomize, Copy and Export sit at the top of the inspector. Hide the sidebar with ⌃⌘S.
 
+Closing the window keeps Undertone running. Reopen it from the Dock or with ⌘0. Quit the app with ⌘Q.
+
 **Gradients.** Every composition lives in the Gradients library and saves itself as you work. A gradient keeps everything: colors, point positions, direction, center, every slider, the seed and the canvas size. Edits save into the open gradient; Duplicate a favorite first to keep the original, and undo covers mistakes. The right-click menu has Rename, Duplicate, Export Recipe and Delete, and Delete can be undone. New Gradient (⌘N) starts an empty gradient. ⌘S confirms a save but is never required.
 
 **Colors.** The Colors tab holds collapsible collections of named colors. A collection can be a full brand library such as Coldwell Banker or a small palette. Every click on a swatch adds that color to the gradient, so a color can appear more than once; a badge shows how many times. Right-click a swatch to edit, rename or delete it. Each collection's menu adds colors, renames, exports and deletes it. New Collection at the bottom also imports a collection or turns the gradient's colors into one. Built-in collections are locked.

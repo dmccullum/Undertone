@@ -18,7 +18,7 @@ import SwiftUI
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     private static func style(_ window: NSWindow) {
         guard window.identifier != AboutWindowController.windowIdentifier else { return }
@@ -44,6 +44,7 @@ struct UndertoneApp: App {
         }
         .defaultSize(width: 1_320, height: 860)
         .windowToolbarStyle(.unified)
+        .keyboardShortcut("0", modifiers: .command)
         .commands {
             AboutCommands()
             SidebarCommands()
