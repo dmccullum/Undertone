@@ -4,8 +4,8 @@
   ],
   "fill": {
     "linear-gradient": [
-      "srgb:0.97255,0.96078,1.00000,1.00000",
-      "srgb:0.84706,0.82353,0.92549,1.00000"
+      "srgb:0.35294,0.26667,0.87843,1.00000",
+      "srgb:0.13333,0.07451,0.47843,1.00000"
     ],
     "orientation": {
       "start": {
@@ -20,23 +20,18 @@
   },
   "groups": [
     {
-      "name": "Pin + Caustic",
+      "name": "Pin",
       "layers": [
         {
           "name": "pin",
           "image-name": "pin.svg"
-        },
-        {
-          "name": "caustic",
-          "image-name": "caustic.svg",
-          "opacity": 0.6
         }
       ],
       "shadow": {
-        "kind": "none",
-        "opacity": 0
+        "kind": "neutral",
+        "opacity": 0.5
       },
-      "specular": false,
+      "specular": true,
       "translucency": {
         "enabled": false,
         "value": 0
@@ -63,7 +58,7 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.9
+        "value": 0.6
       },
       "refractivity": {
         "depth": 0,
@@ -92,7 +87,7 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.9
+        "value": 0.6
       },
       "refractivity": {
         "depth": 0,
@@ -178,7 +173,7 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.9
+        "value": 0.6
       },
       "refractivity": {
         "depth": 0,
