@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="512.0" y1="178.0" x2="512.0" y2="778.0"><stop offset="0.000" stop-color="#FF7BD5"/><stop offset="1.000" stop-color="#A21FE0"/></linearGradient></defs><path d="M473.00 178.00 L551.00 178.00 A56 56 0 0 1 607.00 234.00 L607.00 722.00 A56 56 0 0 1 551.00 778.00 L473.00 778.00 A56 56 0 0 1 417.00 722.00 L417.00 234.00 A56 56 0 0 1 473.00 178.00 Z" fill="url(#g)"/></svg>
