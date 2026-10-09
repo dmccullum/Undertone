@@ -1,220 +1,191 @@
 {
-  "fill" : {
-    "linear-gradient" : [
-      "srgb:0.45402,0.16239,0.85310,1.00000",
-      "srgb:0.83488,0.26147,0.48545,1.00000"
+  "features": [
+    "refractivity"
+  ],
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.35294,0.26667,0.87843,1.00000",
+      "srgb:0.13333,0.07451,0.47843,1.00000"
     ],
-    "orientation" : {
-      "start" : {
-        "x" : 0.5,
-        "y" : 0
+    "orientation": {
+      "start": {
+        "x": 0.2,
+        "y": 0
       },
-      "stop" : {
-        "x" : 0.5,
-        "y" : 0.7
+      "stop": {
+        "x": 0.8,
+        "y": 1
       }
     }
   },
-  "groups" : [
+  "groups": [
     {
-      "blur-material" : 0.07,
-      "layers" : [
+      "name": "Pin",
+      "layers": [
         {
-          "fill" : {
-            "linear-gradient" : [
-              "srgb:0.95907,0.57588,1.00000,1.00000",
-              "srgb:1.00000,0.00000,0.60985,1.00000"
-            ],
-            "orientation" : {
-              "start" : {
-                "x" : 0.7686913395904437,
-                "y" : 1
-              },
-              "stop" : {
-                "x" : 0.08081804607508532,
-                "y" : 0.20487882653061223
-              }
-            }
-          },
-          "image-name" : "Undertone-02.svg",
-          "name" : "Undertone-02",
-          "opacity" : 1,
-          "position-specializations" : [
-            {
-              "value" : {
-                "scale" : 1,
-                "translation-in-points" : [
-                  -28.703125,
-                  -18.46875
-                ]
-              }
-            },
-            {
-              "idiom" : "square",
-              "value" : {
-                "scale" : 0.9,
-                "translation-in-points" : [
-                  -33.3978125000001,
-                  -6.0359375000000455
-                ]
-              }
-            }
-          ]
+          "name": "pin",
+          "image-name": "pin.svg"
         }
       ],
-      "shadow" : {
-        "kind" : "layer-color",
-        "opacity" : 0.35
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
       },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.68
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0
       }
     },
     {
-      "blur-material" : 0.26,
-      "layers" : [
+      "name": "Chip 5",
+      "layers": [
         {
-          "fill" : {
-            "solid" : "extended-gray:1.00000,1.00000"
-          },
-          "image-name" : "Undertone-02.svg",
-          "name" : "Undertone-02",
-          "position-specializations" : [
-            {
-              "value" : {
-                "scale" : 1,
-                "translation-in-points" : [
-                  -28.703125,
-                  -18.46875
-                ]
-              }
-            },
-            {
-              "idiom" : "square",
-              "value" : {
-                "scale" : 1.15,
-                "translation-in-points" : [
-                  -73.98531250000008,
-                  -74.59843750000005
-                ]
-              }
-            }
-          ]
+          "name": "rim-5",
+          "image-name": "rim-5.svg"
+        },
+        {
+          "name": "chip-5",
+          "image-name": "chip-5.svg"
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "blur-material": 0.1,
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.4
       },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.9
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.6
+      },
+      "refractivity": {
+        "depth": 0,
+        "enabled": true,
+        "strength": 0.5
       }
     },
     {
-      "blur-material" : 0.25,
-      "layers" : [
+      "name": "Chip 4",
+      "layers": [
         {
-          "blend-mode" : "normal",
-          "fill" : {
-            "linear-gradient" : [
-              "srgb:0.00000,0.98836,1.00000,1.00000",
-              "srgb:0.00000,0.42248,1.00000,1.00000"
-            ],
-            "orientation" : {
-              "start" : {
-                "x" : 0.0392536137879911,
-                "y" : 0
-              },
-              "stop" : {
-                "x" : 0.8996967918622848,
-                "y" : 0.8865903755868545
-              }
-            }
-          },
-          "image-name" : "undertone-01.svg",
-          "name" : "undertone-01",
-          "opacity" : 1,
-          "position-specializations" : [
-            {
-              "idiom" : "square",
-              "value" : {
-                "scale" : 0.85,
-                "translation-in-points" : [
-                  0,
-                  0
-                ]
-              }
-            }
-          ]
+          "name": "rim-4",
+          "image-name": "rim-4.svg"
+        },
+        {
+          "name": "chip-4",
+          "image-name": "chip-4.svg"
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "blur-material": 0.1,
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.4
       },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.6
+      },
+      "refractivity": {
+        "depth": 0,
+        "enabled": true,
+        "strength": 0.5
       }
     },
     {
-      "blur-material" : 0.5,
-      "hidden-specializations" : [
+      "name": "Chip 3 + Chip 2 + Chip 1",
+      "layers": [
         {
-          "idiom" : "square",
-          "value" : false
-        }
-      ],
-      "layers" : [
+          "name": "rim-3",
+          "image-name": "rim-3.svg"
+        },
         {
-          "fill" : {
-            "solid" : "extended-gray:1.00000,1.00000"
-          },
-          "image-name" : "undertone-01.svg",
-          "name" : "undertone-01",
-          "position-specializations" : [
+          "name": "spec-3",
+          "image-name": "spec-3.svg",
+          "opacity": 0.9,
+          "hidden-specializations": [
             {
-              "idiom" : "square",
-              "value" : {
-                "scale" : 0.97,
-                "translation-in-points" : [
-                  0,
-                  0
-                ]
-              }
+              "appearance": "dark",
+              "value": true
             }
           ]
-        }
-      ],
-      "position-specializations" : [
+        },
         {
-          "idiom" : "square",
-          "value" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
+          "name": "chip-3",
+          "image-name": "chip-3.svg"
+        },
+        {
+          "name": "shadow-3",
+          "image-name": "shadow-3-g3.svg"
+        },
+        {
+          "name": "rim-2",
+          "image-name": "rim-2.svg"
+        },
+        {
+          "name": "spec-2",
+          "image-name": "spec-2.svg",
+          "opacity": 0.9,
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
+          "name": "chip-2",
+          "image-name": "chip-2.svg"
+        },
+        {
+          "name": "shadow-2",
+          "image-name": "shadow-2-g3.svg"
+        },
+        {
+          "name": "rim-1",
+          "image-name": "rim-1.svg"
+        },
+        {
+          "name": "spec-1",
+          "image-name": "spec-1.svg",
+          "opacity": 0.9,
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
+          "name": "chip-1",
+          "image-name": "chip-1.svg"
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "blur-material": 0.1,
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.4
       },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : true,
-        "value" : 1
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.6
+      },
+      "refractivity": {
+        "depth": 0,
+        "enabled": true,
+        "strength": 0.5
       }
     }
   ],
-  "supported-platforms" : {
-    "circles" : [
+  "supported-platforms": {
+    "circles": [
       "watchOS"
     ],
-    "squares" : "shared"
+    "squares": "shared"
   }
 }
