@@ -7,6 +7,12 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Undertone "$APP/Contents/MacOS/Undertone"
 
+# SwiftPM stamps the binary's SDK version with the deployment target (14.0), so AppKit treats the
+# app as built for Sonoma and keeps the pre-Tahoe look (square window corners, old controls).
+# Record the real SDK instead; the minimum OS stays 14.0.
+vtool -set-build-version macos 14.0 "$(xcrun --sdk macosx --show-sdk-version)" -replace \
+    -output "$APP/Contents/MacOS/Undertone" "$APP/Contents/MacOS/Undertone"
+
 # Compile the Icon Composer icon (Icon/Undertone.icon) into Assets.car + Undertone.icns.
 # The path must be absolute: actool's icon exporter fails on a relative one and writes nothing.
 # Assets.car carries the modern (Liquid Glass) icon; the .icns is the fallback on older systems.
