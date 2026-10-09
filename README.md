@@ -19,6 +19,8 @@ zsh scripts/build-app.sh
 open build/Undertone.app
 ```
 
+Or double-click `Build Undertone.command` in Finder. It builds the app, quits a running copy so the new build and its icon replace it, and opens `build/Undertone.app`.
+
 Open `Package.swift` in Xcode to develop with Apple's tooling. `swift test` runs renderer checks. The packaged app is ad-hoc signed for local use, not notarized for distribution.
 
 ## Workflow
