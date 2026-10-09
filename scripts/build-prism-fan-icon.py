@@ -17,9 +17,10 @@ import json, math, os, shutil, sys
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icon", "Undertone.icon")
 if not OUT.rstrip("/").endswith(".icon"):
     sys.exit("refusing to replace %s: the output must be an .icon bundle" % OUT)
-P = {"groups": [["pin", "caustic"], [5], [4], [3, 2, 1]], "bake": True,
-     "translucency": 0.9, "blur": 0.1, "refract": [0.5, 0], "shadow": 0.4,
-     "spec_opacity": 0.9, "inner_shadow": 0.45, "caustic_opacity": 0.6, "caustic_y": 846, "shift": -24}
+P = {"groups": [["pin"], [5], [4], [3, 2, 1]], "bake": True,
+     "translucency": 0.6, "blur": 0.1, "refract": [0.5, 0], "shadow": 0.4,
+     "spec_opacity": 0.9, "inner_shadow": 0.45, "caustic_opacity": 0.6, "caustic_y": 846, "shift": 6,
+     "scale": 1.10, "bg": ["#5A44E0", "#22137A"]}
 if len(sys.argv) > 2:
     P.update(json.loads(sys.argv[2]))
 
@@ -40,13 +41,19 @@ HEAD = '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/20
 
 def tf(p, a, dx=0, dy=0):
     t = math.radians(a); x, y = p[0] - PIV[0], p[1] - PIV[1]
-    return (PIV[0] + x*math.cos(t) - y*math.sin(t) + dx, PIV[1] + x*math.sin(t) + y*math.cos(t) + DY + dy)
+    return sc((PIV[0] + x*math.cos(t) - y*math.sin(t) + dx, PIV[1] + x*math.sin(t) + y*math.cos(t) + DY + dy))
+
+
+def sc(p):
+    """Scale the composition about the canvas centre."""
+    k = P["scale"]
+    return (512 + (p[0] - 512)*k, 512 + (p[1] - 512)*k)
 
 
 def chip_path(i, dx=0, dy=0):
     a = ANGLE[i]
     f = lambda x, y: "%.2f %.2f" % tf((x, y), a, dx, dy)
-    arc = "A%d %d 0 0 1 " % (R, R)
+    arc = "A%.2f %.2f 0 0 1 " % (R*P["scale"], R*P["scale"])
     return ("M" + f(X0+R, Y0) + " L" + f(X1-R, Y0) + " " + arc + f(X1, Y0+R) + " L" + f(X1, Y1-R) + " " + arc + f(X1-R, Y1)
             + " L" + f(X0+R, Y1) + " " + arc + f(X0, Y1-R) + " L" + f(X0, Y0+R) + " " + arc + f(X0+R, Y0) + " Z")
 
@@ -101,9 +108,10 @@ chip_mask = ('<mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" h
 write("caustic.svg", "<defs>" + grad("s", SPECTRUM, (212, 0), (812, 0))
       + '<filter id="b" x="-50%" y="-100%" width="200%" height="300%"><feGaussianBlur stdDeviation="34"/></filter>' + chip_mask + '</defs>'
       + ('<g mask="url(#m)">' if caustic_front else "<g>")
-      + '<ellipse cx="512" cy="%d" rx="300" ry="50" fill="url(#s)" filter="url(#b)"/></g>' % (P["caustic_y"] + P["shift"]))
+      + '<ellipse cx="512" cy="%.1f" rx="%.1f" ry="%.1f" fill="url(#s)" filter="url(#b)"/></g>'
+      % (sc((512, P["caustic_y"] + P["shift"]))[1], 300*P["scale"], 50*P["scale"]))
 
-cx, cy = PIV[0], PIV[1] + DY
+cx, cy = sc((PIV[0], PIV[1] + DY))
 pin_shares = any("pin" in g and len(g) > 1 for g in P["groups"])
 pin_shadow = ('<filter id="ps" x="-80%" y="-80%" width="260%" height="280%"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#1E1240" flood-opacity="0.35"/>'
               '<feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#1E1240" flood-opacity="0.3"/></filter>') if pin_shares else ""
@@ -114,7 +122,7 @@ if any("pin" in g for g in P["groups"]):
       '<linearGradient id="seam" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5A5470" stop-opacity="0.55"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.8"/></linearGradient>'
       '<linearGradient id="spec" x1="0" y1="0" x2="1" y2="0">' + "".join('<stop offset="%.3f" stop-color="%s"/>' % (k/6, c) for k, c in enumerate(SPECTRUM)) + '</linearGradient>'
       + pin_shadow + "</defs>"
-      '<g transform="translate(%d %d)">' % (cx, cy)
+      '<g transform="translate(%.1f %.1f) scale(%.3f)">' % (cx, cy, P["scale"])
       + ('<circle r="44" fill="url(#ring)" filter="url(#ps)"/>' if pin_shares else '<circle r="44" fill="url(#ring)"/>')
       + '<circle r="43" fill="none" stroke="#5E5874" stroke-opacity="0.45" stroke-width="2"/>'
       '<circle r="40" fill="none" stroke="url(#spec)" stroke-opacity="0.22" stroke-width="5"/>'
@@ -168,7 +176,7 @@ def group(members, gi):
 
 doc = {
     "features": ["refractivity"],
-    "fill": {"linear-gradient": [srgb("#F8F5FF"), srgb("#D8D2EC")],
+    "fill": {"linear-gradient": [srgb(P["bg"][0]), srgb(P["bg"][1])],
              "orientation": {"start": {"x": 0.2, "y": 0}, "stop": {"x": 0.8, "y": 1}}},
     "groups": [group(m, gi) for gi, m in enumerate(P["groups"])],
     "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
