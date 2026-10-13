@@ -9,3 +9,6 @@ DerivedData/
 .venv*/
 __pycache__/
 *.egg-info/
+
+# Claude Code local settings
+.claude/settings.local.json
