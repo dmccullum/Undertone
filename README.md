@@ -75,4 +75,4 @@ Use the release configuration for `swift run`: the CPU renderer is much slower i
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
