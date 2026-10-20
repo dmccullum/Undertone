@@ -71,6 +71,7 @@ Use the release configuration for `swift run`: the CPU renderer is much slower i
 
 - [User guide](docs/USAGE.md): library, canvas, styles and file locations
 - [Icon](docs/ICON.md): how the app icon is generated
+- [Claude skill](skills/README.md): render Organic backgrounds with grain from Node or a browser
 - [Design plan](PLAN.md) and [verification notes](VERIFICATION.md)
 
 ## License
