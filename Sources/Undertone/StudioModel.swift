@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
     private static let canvasHeightPreference = "canvasHeight"
     private static let currentGradientPreference = "currentGradientID"
     static let maximumStops = 8
+    static let colorLimitMessage = "A gradient can use up to eight colors"
     /// Longest side of the preview image. On the GPU the canvas draws itself at full resolution
     /// (`MetalCanvas`), so this image only feeds the blurred backdrop; on the CPU it is the canvas.
     nonisolated private static var previewSize: Double { RenderEngine.usesGPU ? 256 : 1_280 }
@@ -26,7 +27,8 @@ import UniformTypeIdentifiers
     private(set) var previewIdentity = 0
     private(set) var styleThumbnails: [GradientMode: NSImage] = [:]
     private(set) var isRendering = false
-    private(set) var toast: String?
+    /// The status capsule over the canvas: what just happened, or the full-size render under way.
+    var status: StatusMessage?
     private(set) var renameRequest = 0
     /// While hovering the color tray, all points are revealed on the canvas.
     private(set) var pointsRevealed = false
@@ -54,7 +56,6 @@ import UniformTypeIdentifiers
     private let colorLibrariesURL: URL
     private let legacyColorsURL: URL
     @ObservationIgnored private var idleTask: Task<Void, Never>?
-    @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var undoBurstTask: Task<Void, Never>?
     @ObservationIgnored private var revealHideTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -188,7 +189,7 @@ import UniformTypeIdentifiers
         commitRecipe()
         do {
             try persistGradients()
-            if confirm { flash("Saved") }
+            if confirm { showStatus("Saved") }
         } catch { fail("Couldn’t Save Your Gradients", error) }
     }
 
@@ -242,7 +243,7 @@ import UniformTypeIdentifiers
         saveNow()
         selectGradient(id: copy.id)
         registerGradientsUndo("Duplicate Gradient", restoring: before)
-        flash("Duplicated \(original.name)")
+        showStatus("Duplicated \(original.name)")
         return copy.id
     }
 
@@ -279,7 +280,7 @@ import UniformTypeIdentifiers
         gradients.insert(saved, at: gradients.firstIndex { !$0.isUnsaved } ?? gradients.endIndex)
         saveNow()
         registerGradientsUndo("Save Gradient", restoring: before)
-        flash("Saved \(saved.name)")
+        showStatus("Saved \(saved.name)")
     }
 
     /// Writes the open unsaved gradient over the saved gradient it came from and opens that one.
@@ -299,7 +300,7 @@ import UniformTypeIdentifiers
         UserDefaults.standard.set(source.id.uuidString, forKey: Self.currentGradientPreference)
         saveNow()
         registerGradientsUndo("Update Gradient", restoring: before)
-        flash("Updated \(edited.name)")
+        showStatus("Updated \(edited.name)")
     }
 
     /// Throws away the open unsaved gradient's edits and reopens the saved gradient it came from.
@@ -386,7 +387,7 @@ import UniformTypeIdentifiers
             model.restoreDeletedGradient(removed, at: index)
         }
         undoManager?.setActionName(removed.isUnsaved ? "Discard Gradient" : "Delete Gradient")
-        flash(removed.isUnsaved ? "Discarded \(removed.name)" : "Deleted \(removed.name)")
+        showStatus(removed.isUnsaved ? "Discarded \(removed.name)" : "Deleted \(removed.name)")
     }
 
     private func restoreDeletedGradient(_ gradient: SavedGradient, at index: Int) {
@@ -606,7 +607,7 @@ import UniformTypeIdentifiers
         do {
             try persistColorLibraries()
             registerLibraryUndo("New Collection", restoring: previous)
-            flash("Created \(name)")
+            showStatus("Created \(name)")
             return library.id
         } catch {
             colorLibraries.removeAll { $0.id == library.id }
@@ -642,7 +643,7 @@ import UniformTypeIdentifiers
         colorLibraries.removeAll { $0.id == id }
         saveColorLibraries()
         registerLibraryUndo("Delete Collection", restoring: previous)
-        flash("Deleted \(library.name)")
+        showStatus("Deleted \(library.name)")
     }
 
     func deleteLibraryColor(_ colorID: UUID, from libraryID: UUID) {
@@ -705,7 +706,7 @@ import UniformTypeIdentifiers
         do {
             try persistColorLibraries()
             registerLibraryUndo("Add Color", restoring: previous)
-            flash("Saved \(color.displayName) to \(colorLibraries[target].name)")
+            showStatus("Saved \(color.displayName) to \(colorLibraries[target].name)")
             return colorLibraries[target].id
         } catch {
             colorLibraries = previous
@@ -742,7 +743,7 @@ import UniformTypeIdentifiers
         do { try persistColorLibraries() }
         catch { colorLibraries = previous; throw error }
         registerLibraryUndo("Import Collection", restoring: previous)
-        flash("Imported \(imported.name)")
+        showStatus("Imported \(imported.name)")
         return imported.id
     }
 
@@ -761,7 +762,7 @@ import UniformTypeIdentifiers
         panel.nameFieldStringValue = Self.fileSafe(library.name) + ".undertone-colors.json"
         Task {
             guard await panel.present(in: window) == .OK, let url = panel.url else { return }
-            do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); flash("Exported \(library.name)") }
+            do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); showStatus("Exported \(library.name)") }
             catch { fail("Couldn’t Export Collection", error) }
         }
     }
@@ -792,8 +793,9 @@ import UniformTypeIdentifiers
             setBaseColor(hex: color.hex)
             return
         }
+        // The swatches and the tray's + button are disabled at the limit; this covers anything else.
         guard recipe.stops.count < Self.maximumStops else {
-            flash("A gradient can use up to eight colors")
+            showStatus(Self.colorLimitMessage)
             return
         }
         let positions: [(Double, Double)] = [(0.18, 0.18), (0.82, 0.20), (0.22, 0.80), (0.78, 0.82), (0.50, 0.15), (0.50, 0.85), (0.15, 0.50), (0.85, 0.50)]
@@ -1193,15 +1195,9 @@ import UniformTypeIdentifiers
         errorMessage = error.localizedDescription
     }
 
-    func flash(_ message: String) {
-        toastTask?.cancel()
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.35, dampingFraction: 0.8)) { toast = message }
-        toastTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2.4))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { self?.toast = nil }
-        }
+    /// Reports something that just happened in the status capsule. Failures go to the alert instead.
+    func showStatus(_ message: String) {
+        status = StatusMessage(message)
     }
 
     // MARK: - Export
@@ -1219,8 +1215,14 @@ import UniformTypeIdentifiers
         guard !isRendering else { return }
         isRendering = true
         let snapshot = recipe
+        let progress = StatusMessage.progress("Rendering full-size image")
+        status = progress
         Task {
-            defer { isRendering = false }
+            defer {
+                isRendering = false
+                // The completion's own status replaces the progress; clear it if nothing did.
+                if status == progress { status = nil }
+            }
             do {
                 let image = try await Task.detached(priority: .userInitiated) { try RenderEngine.render(snapshot, width: snapshot.width, height: snapshot.height) }.value
                 try completion(image, snapshot)
@@ -1252,7 +1254,7 @@ import UniformTypeIdentifiers
             if let tiff = NSBitmapImageRep(cgImage: image).tiffRepresentation { item.setData(tiff, forType: .tiff) }
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.writeObjects([item]) else { throw CocoaError(.fileWriteUnknown) }
-            self.flash("Copied \(self.recipe.width) × \(self.recipe.height) image")
+            self.showStatus("Copied \(self.recipe.width) × \(self.recipe.height) image")
         }
     }
 
@@ -1302,7 +1304,7 @@ import UniformTypeIdentifiers
             let jpeg = accessory.format == .jpeg, quality = Self.jpegQuality
             renderExport(failureTitle: "Couldn’t Export Image") { image, _ in
                 try Self.encoded(image, jpeg: jpeg, quality: quality).write(to: url, options: .atomic)
-                self.flash("Saved \(url.lastPathComponent)")
+                self.showStatus("Saved \(url.lastPathComponent)")
             }
         }
     }
@@ -1323,7 +1325,7 @@ import UniformTypeIdentifiers
             do {
                 let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 try encoder.encode(recipe).write(to: url, options: .atomic)
-                flash("Exported \(url.lastPathComponent)")
+                showStatus("Exported \(url.lastPathComponent)")
             } catch { fail("Couldn’t Export Recipe", error) }
         }
     }

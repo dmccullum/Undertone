@@ -504,7 +504,7 @@ private struct SwatchTile: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(reduceMotion ? .easeInOut(duration: 0.15) : .snappy, value: count)
-        .help("Add \(color.displayName) · #\(color.hex)")
+        .help(isEnabled ? "Add \(color.displayName) · #\(color.hex)" : StudioModel.colorLimitMessage)
         .accessibilityLabel("\(color.displayName), \(color.hex)")
         .accessibilityValue(count == 0 ? "Not in gradient" : "In gradient \(count) times")
         .accessibilityHint("Adds this color to the gradient")

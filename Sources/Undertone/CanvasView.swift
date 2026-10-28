@@ -1,4 +1,5 @@
 import AppKit
+import DMKit
 import SwiftUI
 
 struct StudioCanvas: View {
@@ -162,9 +163,7 @@ private struct ArtworkView: View {
         }
         .aspectRatio(ratio, contentMode: .fit)
         .onHover { hovering = $0 }
-        .overlay(alignment: .bottom) {
-            CanvasToast().padding(14)
-        }
+        .statusCapsule(Bindable(model).status)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Gradient artwork")
     }
@@ -594,38 +593,6 @@ private struct CenterHandle: View {
     }
 }
 
-private struct CanvasToast: View {
-    @Environment(StudioModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Group {
-            if model.isRendering {
-                HStack(spacing: 7) {
-                    ProgressView().controlSize(.small)
-                    Text("Rendering full-size image")
-                }
-                .toastStyle()
-            } else if let toast = model.toast {
-                Text(toast)
-                    .toastStyle()
-                    .id(toast)
-            }
-        }
-        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-        .allowsHitTesting(false)
-    }
-}
-
-private extension View {
-    func toastStyle() -> some View {
-        font(.callout.weight(.medium))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .modifier(FloatingSurface(shape: Capsule()))
-    }
-}
-
 /// Liquid Glass for the controls floating over the canvas, or an opaque fill with a separator edge
 /// when Reduce Transparency is on.
 private struct FloatingSurface<S: InsettableShape>: ViewModifier {
@@ -689,8 +656,11 @@ private struct ColorTray: View {
                     .gesture(reorderGesture(for: stop))
                     .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
             }
-            if model.canAddStop {
+            // At eight colors the button stays, disabled, and its help says why. Tonal takes one
+            // base color, so its button simply leaves once that's set.
+            if model.canAddStop || model.recipe.mode != .tonal {
                 AddStopButton()
+                    .disabled(!model.canAddStop)
             }
             if !model.recipe.stops.isEmpty {
                 Divider().frame(height: 22)
@@ -992,7 +962,7 @@ private struct AddStopButton: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .help("Add a color")
+        .help(model.canAddStop ? "Add a color" : StudioModel.colorLimitMessage)
         .accessibilityLabel("Add a color")
         .popover(isPresented: $showsPicker, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 12) {
