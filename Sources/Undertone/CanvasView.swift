@@ -17,25 +17,14 @@ struct StudioCanvas: View {
                 .padding(.bottom, 20)
                 .padding(.horizontal, 24)
         }
+        // On macOS 26 the canvas column runs under the floating sidebar, and the split view counts
+        // the sidebar twice when it adds up the window's minimum width: once for the sidebar column
+        // and again inside this column's minimum. Any minimum here (the color tray's width) then
+        // lands on top of that, so the canvas reports none and ContentView sets the window's minimum.
+        .frame(minWidth: 0, maxWidth: .infinity)
         // The title is the native window title, with "Unsaved" as its subtitle for unsaved work; the
-        // toolbar carries the actions on the trailing side.
+        // toolbar just carries the actions on the trailing side.
         .toolbar {
-            if model.isCurrentUnsaved {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        if let source = model.currentSource {
-                            Button("Update “\(source.name)”") { model.updateSavedGradient() }
-                            Button("Revert to Saved") { model.revertToSaved() }
-                        }
-                    } label: {
-                        Label("Save", systemImage: "square.and.arrow.down")
-                    } primaryAction: {
-                        model.saveAsNewGradient()
-                    }
-                    .menuIndicator(model.currentSource == nil ? .hidden : .visible)
-                    .help(model.currentSource == nil ? "Save this gradient (⌘S)" : "Save as a new gradient (⌘S), or update the one it came from")
-                }
-            }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { model.randomize() } label: { Label("Randomize", systemImage: "shuffle") }
                     .help("Randomize the layout (⌘R)")

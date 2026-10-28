@@ -40,7 +40,8 @@ struct UndertoneApp: App {
         Window("Undertone", id: "studio") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 980, minHeight: 660)
+                // ContentView sets the minimum width, which depends on whether the inspector is open.
+                .frame(minHeight: 660)
         }
         .defaultSize(width: 1_320, height: 860)
         .windowToolbarStyle(.unified)
@@ -48,6 +49,7 @@ struct UndertoneApp: App {
         .commands {
             AboutCommands()
             SidebarCommands()
+            InspectorCommands()
             StudioCommands(model: model)
         }
     }

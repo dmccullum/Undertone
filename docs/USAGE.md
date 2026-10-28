@@ -25,7 +25,7 @@ Open `Package.swift` in Xcode to develop with Apple's tooling. `swift test` runs
 
 ## Workflow
 
-The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Randomize, Copy and Export sit at the top of the inspector. Hide the sidebar with ⌃⌘S.
+The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Randomize, Copy and Export are in the toolbar. Hide the sidebar with ⌃⌘S and the inspector with ⌃⌘I or the toolbar’s inspector button.
 
 Closing the window keeps Undertone running. Reopen it from the Dock or with ⌘0. Quit the app with ⌘Q.
 
@@ -36,7 +36,7 @@ Closing the window keeps Undertone running. Reopen it from the Dock or with ⌘0
 - **Revert to Saved** drops the copy and reopens the original.
 - Or leave it unsaved. An unsaved copy you edit back to match its original is removed when you open another gradient.
 
-The same commands are in the File menu, the toolbar’s Save button and the row’s right-click menu, and all of them can be undone. The right-click menu also has Rename, Duplicate, Export Recipe and Delete (Discard for an unsaved gradient). New Gradient (⌘N) starts an empty unsaved gradient.
+The same commands are in the File menu and the row’s right-click menu, and all of them can be undone. The right-click menu also has Rename, Duplicate, Export Recipe and Delete (Discard for an unsaved gradient). New Gradient (⌘N) starts an empty unsaved gradient.
 
 **Colors.** The Colors tab holds collapsible collections of named colors. A collection can be a full brand library such as Coldwell Banker or a small palette. Every click on a swatch adds that color to the gradient, so a color can appear more than once; a badge shows how many times. Right-click a swatch to edit, rename or delete it. Each collection's menu adds colors, renames, exports and deletes it. New Collection at the bottom also imports a collection or turns the gradient's colors into one. Built-in collections are locked.
 

@@ -9,18 +9,31 @@ struct SidebarView: View {
     @AppStorage("sidebarTab") private var tab: SidebarTab = .gradients
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
+            switch tab {
+            case .gradients: GradientLibraryView()
+            case .colors: ColorLibraryView()
+            }
+        }
+        .sidebarBar(edge: .top) {
             LibraryTabPicker(tab: $tab)
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity)
-                .background(.bar)
+        }
+    }
+}
 
-            switch tab {
-            case .gradients: GradientLibraryView()
-            case .colors: ColorLibraryView()
-            }
+extension View {
+    /// A bar pinned to the top or bottom of a sidebar list. On macOS 26 and later it floats over the
+    /// list, which scrolls under it with the system's scroll-edge effect, instead of sitting on an
+    /// opaque band; before that it sits on the bar material.
+    @ViewBuilder func sidebarBar<Bar: View>(edge: VerticalEdge, @ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(macOS 26.0, *) {
+            safeAreaBar(edge: edge, spacing: 0, content: bar)
+        } else {
+            safeAreaInset(edge: edge, spacing: 0) { bar().background(.bar) }
         }
     }
 }
@@ -36,7 +49,22 @@ private struct LibraryTabPicker: View {
             segment("Colors", .colors)
         }
         .padding(3)
-        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .modifier(TrackBackground())
+    }
+
+    /// Liquid Glass capsule on macOS 26 and later, a tinted rounded rectangle before that.
+    private struct TrackBackground: ViewModifier {
+        func body(content: Content) -> some View {
+            if #available(macOS 26.0, *) {
+                content.glassEffect(.regular, in: Capsule())
+            } else {
+                content.background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+    }
+
+    private var thumbShape: AnyShape {
+        if #available(macOS 26.0, *) { AnyShape(Capsule()) } else { AnyShape(RoundedRectangle(cornerRadius: 6, style: .continuous)) }
     }
 
     private func segment(_ title: String, _ value: SidebarTab) -> some View {
@@ -50,7 +78,7 @@ private struct LibraryTabPicker: View {
                 .padding(.vertical, 4)
                 .background {
                     if selected {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        thumbShape
                             .fill(Color(nsColor: .controlColor))
                             .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
                     }
@@ -96,7 +124,7 @@ struct GradientLibraryView: View {
         .onDeleteCommand {
             if let id = model.currentGradientID { model.deleteGradient(id: id) }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .sidebarBar(edge: .bottom) {
             HStack(spacing: 12) {
                 Button("New", systemImage: "plus") { model.newGradient() }
                     .help("Start a new gradient (⌘N)")
@@ -108,7 +136,6 @@ struct GradientLibraryView: View {
             }
             .buttonStyle(.borderless)
             .padding(10)
-            .background(.bar)
         }
         .sheet(item: $renaming) { gradient in
             NameSheet(title: "Rename Gradient", message: nil, confirmTitle: "Rename", name: gradient.name) { name in
@@ -221,22 +248,21 @@ struct ColorLibraryView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(model.colorLibraries) { library in
-                        CollectionSection(
-                            library: library,
-                            isExpanded: expansion(for: library),
-                            showSheet: { sheet = $0 },
-                            requestDelete: { deleting = $0 }
-                        )
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(model.colorLibraries) { library in
+                    CollectionSection(
+                        library: library,
+                        isExpanded: expansion(for: library),
+                        showSheet: { sheet = $0 },
+                        requestDelete: { deleting = $0 }
+                    )
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
             }
-
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+        }
+        .sidebarBar(edge: .bottom) {
             HStack {
                 Menu {
                     Button("New Collection…", systemImage: "folder.badge.plus") { sheet = .newCollection }
@@ -259,7 +285,6 @@ struct ColorLibraryView: View {
                 Spacer()
             }
             .padding(10)
-            .background(.bar)
         }
         .sheet(item: $sheet) { sheet in
             sheetContent(sheet)

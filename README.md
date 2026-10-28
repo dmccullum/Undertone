@@ -67,6 +67,7 @@ Use the release configuration for `swift run`: the CPU renderer is much slower i
 | ⌘E | Export image |
 | ⇧⌘C | Copy image |
 | ⌃⌘S | Hide or show the sidebar |
+| ⌃⌘I | Hide or show the inspector |
 | ⌘0 | Reopen the window |
 
 ## Documentation

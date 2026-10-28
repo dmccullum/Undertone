@@ -5,25 +5,32 @@ struct ContentView: View {
     @EnvironmentObject private var model: StudioModel
     @Environment(\.undoManager) private var undoManager
     @State private var renaming = false
+    @AppStorage("showsInspector") private var showsInspector = true
 
     var body: some View {
         NavigationSplitView {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 340)
         } detail: {
-            HStack(spacing: 0) {
-                StudioCanvas()
-                // The rule and panel run up under the transparent toolbar, like the sidebar, so the
-                // inspector reads as one full-height column.
-                Divider()
-                    .ignoresSafeArea(.container, edges: .top)
-                InspectorView()
-                    .frame(width: 300)
-                    .background {
-                        Rectangle().fill(.regularMaterial).ignoresSafeArea(.container, edges: .top)
+            StudioCanvas()
+                // The system inspector: a full-height trailing pane on macOS 26, a View menu item and
+                // ⌃⌘I (InspectorCommands), and the toolbar toggle below.
+                .inspector(isPresented: $showsInspector) {
+                    InspectorView()
+                        .inspectorColumnWidth(min: 280, ideal: 300, max: 360)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { showsInspector.toggle() } label: {
+                            Label(showsInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing")
+                        }
+                        .help(showsInspector ? "Hide the inspector (⌃⌘I)" : "Show the inspector (⌃⌘I)")
                     }
-            }
+                }
         }
+        // The window's minimum width: sidebar, room for the canvas and color tray, and the inspector
+        // when it's open. StudioCanvas explains why the columns can't report this themselves.
+        .frame(minWidth: showsInspector ? 1_000 : 700)
         // The backdrop fills the whole window — including behind the transparent toolbar — so the
         // content can sit in its safe area (no title-bar overlap, no dynamic insets) while the top
         // band still shows the gradient instead of an empty bar.
