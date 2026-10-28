@@ -1,10 +1,10 @@
 # Verification
 
-Last run: 2026-10-12, macOS 26.6.1 on Apple silicon, Swift 6.4.
+Last run: 2026-10-28, macOS 26.7.1 on Apple silicon, Swift 6.4, macOS 27 SDK.
 
 ## Automated
 
-`swift test -c release` runs 60 tests: 56 pass and 4 skip, with 0 failures. The skipped tests are opt-in:
+`swift test -c release` runs 65 tests: 61 pass and 4 skip, with 0 failures. The skipped tests are opt-in:
 
 | Environment variable | Test it enables |
 | --- | --- |
@@ -34,6 +34,11 @@ These need a person at the app and are not covered by tests:
 - Undo and redo across slider drags, style changes and Randomize.
 - Light and dark appearance of the blurred backdrop and inspector.
 - Migration: an existing `palettes.json` becomes gradients and is renamed `palettes-migrated.json`.
+- Settings (⌘,): the export format sets the Format pop-up in Export Image's save panel; switching the pop-up changes the file's extension; JPEG Quality changes JPEG file size.
+- File panels (Export Image, Export and Import Recipe, Export and Import Collection) open as sheets on the window.
+- Menus: View › Show Inspector is ⌥⌘I; Gradient › Canvas Size, Texture, Shuffle Flow, Reset Style, Reset Texture and Remove All Colors; the Colors menu opens its sheets from either sidebar tab.
+- Right-click menus on the canvas, a collection header, a swatch, a tray chip and an unsaved gradient row.
+- Reduce Motion, Reduce Transparency and Increase Contrast (System Settings › Accessibility › Display), and a yellow accent color for the swatch badge and the selected angle button.
 
 ## Distribution
 
