@@ -20,8 +20,10 @@ import SwiftUI
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// Styles the studio window only. Panels, alerts, the color panel and About keep their own chrome.
+    /// SwiftUI names the scene's window after its id ("studio", or "studio-AppWindow-1").
     private static func style(_ window: NSWindow) {
-        guard window.identifier != AboutWindowController.windowIdentifier else { return }
+        guard window.identifier?.rawValue.hasPrefix("studio") == true else { return }
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
