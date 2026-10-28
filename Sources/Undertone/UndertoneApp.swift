@@ -1,4 +1,5 @@
 import AppKit
+import DMKit
 import SwiftUI
 
 final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
@@ -94,6 +95,7 @@ struct UndertoneApp: App {
         .commands {
             AboutCommands()
             HelpCommands()
+            UndoCommands()
             SidebarCommands()
             StudioCommands(model: model)
         }
