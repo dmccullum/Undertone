@@ -306,14 +306,12 @@ struct ColorLibrary: Codable, Identifiable, Equatable {
     static let coldwellBanker = ColorLibrary(
         id: coldwellBankerID,
         name: "Coldwell Banker",
-        colors: LibraryColor.coldwellBanker,
-        isBuiltIn: false
+        colors: LibraryColor.coldwellBanker
     )
 
     var id = UUID()
     var name: String
     var colors: [LibraryColor]
-    var isBuiltIn = false
 }
 
 enum CanvasPreset: String, CaseIterable, Identifiable {

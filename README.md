@@ -23,8 +23,8 @@
 - **Film grain.** Grain amount and grain size sliders. Output is dithered to avoid banding.
 - **Direct handles.** Drag color points, grid points, the Glow center and the Linear angle on the canvas.
 - **Color tray.** Click a color to edit it, drag to reorder, pull it off the tray to remove it.
-- **Color collections.** Named collections of colors, including built-in brand collections. Export and import your own.
-- **Gradient library.** A saved gradient keeps its colors, points, sliders, seed and canvas size. Editing one opens an unsaved copy that autosaves; ⌘S saves it as a new gradient, ⌥⌘S writes it back over the original. Duplicate, rename, delete and undo.
+- **Color collections.** Named collections of colors. Coldwell Banker is added on first launch as an ordinary collection you can edit or delete. Export and import your own.
+- **Gradient library.** A saved gradient keeps its colors, points, sliders, seed and canvas size. Editing one opens an unsaved copy that autosaves; ⌘S saves it as a new gradient, ⌥⌘S writes it back over the original. Drag saved gradients to reorder them. Duplicate, rename, delete and undo.
 - **Names.** Gradients are named from their colors. With Apple Intelligence on macOS 26 or later, name ideas come from the on-device model.
 - **Canvas sizes.** Presets for Instagram (2160 × 2880), Square (2048 × 2048) and Story (1440 × 2560), plus a custom size.
 - **Export.** Save an image with ⌘E, copy it with ⇧⌘C, or drag the canvas into Finder or another app. Files are named like `Harbor Hush 2160x2880.png`.

@@ -327,6 +327,19 @@ import UniformTypeIdentifiers
         undoManager.setActionName(actionName)
     }
 
+    /// Reorders the Saved section of the library. Offsets count saved gradients only, as the list
+    /// shows them; unsaved gradients keep their places.
+    func moveSavedGradients(fromOffsets source: IndexSet, toOffset destination: Int) {
+        var saved = gradients.filter { !$0.isUnsaved }
+        saved.move(fromOffsets: source, toOffset: destination)
+        let before = librarySnapshot()
+        var next = saved.makeIterator()
+        gradients = gradients.map { $0.isUnsaved ? $0 : next.next()! }
+        guard gradients.map(\.id) != before.gradients.map(\.id) else { return }
+        saveNow()
+        registerGradientsUndo("Move Gradient", restoring: before)
+    }
+
     /// "Dusk" becomes "Dusk 2", and "Dusk 2" becomes "Dusk 3", skipping names already in use.
     private func numberedName(for name: String) -> String {
         var base = name
@@ -597,7 +610,7 @@ import UniformTypeIdentifiers
 
     @discardableResult func renameColorLibrary(id: UUID, to name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, let index = colorLibraries.firstIndex(where: { $0.id == id }), !colorLibraries[index].isBuiltIn else { return false }
+        guard !name.isEmpty, let index = colorLibraries.firstIndex(where: { $0.id == id }) else { return false }
         let previous = colorLibraries
         colorLibraries[index].name = name
         saveColorLibraries()
@@ -606,7 +619,7 @@ import UniformTypeIdentifiers
     }
 
     func deleteColorLibrary(id: UUID) {
-        guard let library = colorLibraries.first(where: { $0.id == id }), !library.isBuiltIn else { return }
+        guard let library = colorLibraries.first(where: { $0.id == id }) else { return }
         let previous = colorLibraries
         colorLibraries.removeAll { $0.id == id }
         saveColorLibraries()
@@ -615,17 +628,37 @@ import UniformTypeIdentifiers
     }
 
     func deleteLibraryColor(_ colorID: UUID, from libraryID: UUID) {
-        guard let index = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[index].isBuiltIn else { return }
+        guard let index = colorLibraries.firstIndex(where: { $0.id == libraryID }) else { return }
         let previous = colorLibraries
         colorLibraries[index].colors.removeAll { $0.id == colorID }
         saveColorLibraries()
         registerLibraryUndo("Delete Color", restoring: previous)
     }
 
+    /// Moves colors before another color, or to the end, of a collection, which may be a different
+    /// one from where they started.
+    func moveLibraryColors(_ colorIDs: [UUID], to libraryID: UUID, before beforeID: UUID?) {
+        guard let target = colorLibraries.firstIndex(where: { $0.id == libraryID }) else { return }
+        let previous = colorLibraries
+        var moving: [LibraryColor] = []
+        for id in colorIDs {
+            guard let library = colorLibraries.firstIndex(where: { $0.colors.contains { $0.id == id } }),
+                  let index = colorLibraries[library].colors.firstIndex(where: { $0.id == id }) else { continue }
+            moving.append(colorLibraries[library].colors.remove(at: index))
+        }
+        guard !moving.isEmpty else { return }
+        let colors = colorLibraries[target].colors
+        let insertion = beforeID.flatMap { id in colors.firstIndex { $0.id == id } } ?? colors.endIndex
+        colorLibraries[target].colors.insert(contentsOf: moving, at: insertion)
+        guard colorLibraries != previous else { return }
+        saveColorLibraries()
+        registerLibraryUndo("Move Color", restoring: previous)
+    }
+
     @discardableResult func updateLibraryColor(_ colorID: UUID, in libraryID: UUID, name: String, hex: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let hex = Hex.normalized(hex),
-              let libraryIndex = colorLibraries.firstIndex(where: { $0.id == libraryID }), !colorLibraries[libraryIndex].isBuiltIn,
+              let libraryIndex = colorLibraries.firstIndex(where: { $0.id == libraryID }),
               let colorIndex = colorLibraries[libraryIndex].colors.firstIndex(where: { $0.id == colorID }) else { return false }
         let previous = colorLibraries
         let onlyRenamed = previous[libraryIndex].colors[colorIndex].hex == hex
@@ -640,9 +673,9 @@ import UniformTypeIdentifiers
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let hex = Hex.normalized(hex) else { return nil }
         let previous = colorLibraries
-        var target = colorLibraries.firstIndex { $0.id == libraryID && !$0.isBuiltIn }
+        var target = colorLibraries.firstIndex { $0.id == libraryID }
         if target == nil {
-            target = colorLibraries.firstIndex { $0.name == "My Colors" && !$0.isBuiltIn }
+            target = colorLibraries.firstIndex { $0.name == "My Colors" }
         }
         if target == nil {
             colorLibraries.append(.init(name: "My Colors", colors: []))
@@ -665,7 +698,7 @@ import UniformTypeIdentifiers
 
     func encodedColorLibrary(id: UUID) throws -> Data {
         guard let library = colorLibraries.first(where: { $0.id == id }) else { throw CocoaError(.fileNoSuchFile) }
-        let exported = ColorLibrary(id: library.id, name: library.name, colors: library.colors, isBuiltIn: false)
+        let exported = ColorLibrary(id: library.id, name: library.name, colors: library.colors)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(exported)
     }

@@ -79,6 +79,45 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.gradients.first { $0.id == dusk.id }?.recipe, dusk.recipe)
     }
 
+    @MainActor func testSavedGradientsReorderAroundUnsavedOnes() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        step(undoManager) { model.recipe.softness = 0.2 }
+        let unsavedID = try XCTUnwrap(model.currentGradientID)
+        XCTAssertEqual(model.gradients.filter { !$0.isUnsaved }.map(\.name), ["Dusk", "Tidal", "Ember"])
+
+        step(undoManager) { model.moveSavedGradients(fromOffsets: [2], toOffset: 0) }
+        XCTAssertEqual(model.gradients.filter { !$0.isUnsaved }.map(\.name), ["Ember", "Dusk", "Tidal"])
+        XCTAssertEqual(model.gradients.first?.id, unsavedID, "Unsaved gradients keep their places")
+        XCTAssertEqual(StudioModel(directory: folder).gradients.filter { !$0.isUnsaved }.map(\.name), ["Ember", "Dusk", "Tidal"])
+
+        undoManager.undo()
+        XCTAssertEqual(model.gradients.filter { !$0.isUnsaved }.map(\.name), ["Dusk", "Tidal", "Ember"])
+    }
+
+    @MainActor func testLibraryColorsMoveWithinAndBetweenCollections() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let brand = ColorLibrary.coldwellBankerID
+        let blue = LibraryColor.coldwellBanker[0], gray = LibraryColor.coldwellBanker[1], mist = LibraryColor.coldwellBanker[2]
+        var created: UUID?
+        step(undoManager) { created = model.createColorLibrary(name: "Campaign") }
+        let otherID = try XCTUnwrap(created)
+
+        step(undoManager) { model.moveLibraryColors([blue.id], to: brand, before: mist.id) }
+        XCTAssertEqual(model.colorLibraries.first { $0.id == brand }?.colors.prefix(3).map(\.id), [gray.id, blue.id, mist.id])
+
+        step(undoManager) { model.moveLibraryColors([gray.id], to: otherID, before: nil) }
+        XCTAssertEqual(model.colorLibraries.first { $0.id == otherID }?.colors.map(\.id), [gray.id])
+        XCTAssertFalse(model.colorLibraries.first { $0.id == brand }?.colors.contains { $0.id == gray.id } ?? true)
+
+        undoManager.undo()
+        undoManager.undo()
+        XCTAssertEqual(model.colorLibraries.first { $0.id == brand }?.colors, LibraryColor.coldwellBanker)
+    }
+
     @MainActor func testRevertAndUntouchedCopiesLeaveNoUnsavedGradient() throws {
         let folder = temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -134,7 +173,6 @@ final class LibraryTests: XCTestCase {
         let imported = try XCTUnwrap(model.colorLibraries.first { $0.id == importedID })
         XCTAssertEqual(imported.name, "Coastal")
         XCTAssertEqual(imported.colors.map(\.hex), ["2068FF"])
-        XCTAssertFalse(imported.isBuiltIn)
     }
 
     @MainActor func testFirstLaunchSeedsStarterGradients() {

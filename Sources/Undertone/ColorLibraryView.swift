@@ -108,7 +108,10 @@ struct GradientLibraryView: View {
                 if !unsaved.isEmpty {
                     Section("Unsaved") { rows(unsaved) }
                 }
-                Section("Saved") { rows(model.gradients.filter { !$0.isUnsaved }) }
+                Section("Saved") {
+                    rows(model.gradients.filter { !$0.isUnsaved })
+                        .onMove { model.moveSavedGradients(fromOffsets: $0, toOffset: $1) }
+                }
             }
             .listStyle(.sidebar)
             // Room between the tab picker and the first section header.
@@ -145,7 +148,7 @@ struct GradientLibraryView: View {
         }
     }
 
-    private func rows(_ gradients: [SavedGradient]) -> some View {
+    private func rows(_ gradients: [SavedGradient]) -> some DynamicViewContent {
         ForEach(gradients) { gradient in
             GradientRow(gradient: gradient, thumbnail: model.thumbnail(for: gradient), sourceName: sourceName(of: gradient))
                 .tag(gradient.id)
@@ -220,6 +223,25 @@ private struct GradientRow: View {
 
 // MARK: - Colors
 
+/// Applies swatch drags between and within collections (macOS 27 and later).
+private struct SwatchReordering: ViewModifier {
+    let model: StudioModel
+
+    func body(content: Content) -> some View {
+        if #available(macOS 27.0, *) {
+            content.reorderContainer(for: LibraryColor.self, in: UUID.self) { difference in
+                let before: UUID? = switch difference.destination.position {
+                case .before(let id): id
+                case .end: nil
+                }
+                model.moveLibraryColors(difference.sources, to: difference.destination.collectionID, before: before)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// The sheets the Colors tab can show.
 private enum ColorSheet: Identifiable {
     case addColor(libraryID: UUID)
@@ -261,6 +283,7 @@ struct ColorLibraryView: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
+            .modifier(SwatchReordering(model: model))
         }
         .sidebarBar(edge: .bottom) {
             HStack {
@@ -352,16 +375,23 @@ private struct CollectionSection: View {
             header
             if isExpanded {
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(library.colors) { color in
-                        swatch(color)
-                    }
-                    if !library.isBuiltIn {
-                        AddSwatchTile { showSheet(.addColor(libraryID: library.id)) }
-                    }
+                    swatches
+                    AddSwatchTile { showSheet(.addColor(libraryID: library.id)) }
                 }
                 .padding(.bottom, 8)
                 .transition(.opacity)
             }
+        }
+    }
+
+    /// On macOS 27 and later, swatches drag to reorder, within the collection or into another one;
+    /// ColorLibraryView applies the moves.
+    @ViewBuilder private var swatches: some View {
+        if #available(macOS 27.0, *) {
+            ForEach(library.colors) { swatch($0) }
+                .reorderable(collectionID: library.id)
+        } else {
+            ForEach(library.colors) { swatch($0) }
         }
     }
 
@@ -379,12 +409,6 @@ private struct CollectionSection: View {
                     Text(library.name)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    if library.isBuiltIn {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                            .help("Built-in collections can't be changed")
-                    }
                     if !isExpanded {
                         HStack(spacing: -3) {
                             ForEach(library.colors.prefix(6)) { color in
@@ -399,15 +423,11 @@ private struct CollectionSection: View {
             .buttonStyle(.plain)
 
             Menu {
-                if !library.isBuiltIn {
-                    Button("Add Color…", systemImage: "plus") { showSheet(.addColor(libraryID: library.id)) }
-                    Button("Rename…", systemImage: "pencil") { showSheet(.renameCollection(library)) }
-                }
+                Button("Add Color…", systemImage: "plus") { showSheet(.addColor(libraryID: library.id)) }
+                Button("Rename…", systemImage: "pencil") { showSheet(.renameCollection(library)) }
                 Button("Export…", systemImage: "square.and.arrow.up") { model.exportColorLibrary(id: library.id) }
-                if !library.isBuiltIn {
-                    Divider()
-                    Button("Delete…", systemImage: "trash", role: .destructive) { requestDelete(library) }
-                }
+                Divider()
+                Button("Delete…", systemImage: "trash", role: .destructive) { requestDelete(library) }
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(.secondary)
