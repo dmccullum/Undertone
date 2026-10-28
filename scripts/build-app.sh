@@ -13,12 +13,14 @@ cp .build/release/Undertone "$APP/Contents/MacOS/Undertone"
 vtool -set-build-version macos 26.0 "$(xcrun --sdk macosx --show-sdk-version)" -replace \
     -output "$APP/Contents/MacOS/Undertone" "$APP/Contents/MacOS/Undertone"
 
-# Compile the Icon Composer icon (Icon/Undertone.icon) into Assets.car + Undertone.icns.
-# The path must be absolute: actool's icon exporter fails on a relative one and writes nothing.
+# Compile the Icon Composer icon (Icon/Undertone.icon) and the asset catalog (the AccentColor
+# colorset) into one Assets.car, plus Undertone.icns.
+# The paths must be absolute: actool's icon exporter fails on a relative one and writes nothing.
 # Assets.car carries the Liquid Glass icon (CFBundleIconName); the .icns backs CFBundleIconFile.
-xcrun actool "$PWD/Icon/Undertone.icon" \
+xcrun actool "$PWD/Icon/Undertone.icon" "$PWD/Resources/Assets.xcassets" \
     --compile "$APP/Contents/Resources" \
     --app-icon "Undertone" \
+    --accent-color "AccentColor" \
     --output-partial-info-plist "$PWD/build/icon-partial.plist" \
     --platform macosx --minimum-deployment-target 26.0 \
     --errors --warnings >/dev/null
@@ -33,6 +35,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Undertone</string>
 <key>CFBundleIconFile</key><string>Undertone</string>
 <key>CFBundleIconName</key><string>Undertone</string>
+<key>NSAccentColorName</key><string>AccentColor</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>5</string>
