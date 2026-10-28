@@ -25,7 +25,7 @@ Open `Package.swift` in Xcode to develop with Apple's tooling. `swift test` runs
 
 ## Workflow
 
-The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Randomize, Copy and Export are in the toolbar. Hide the sidebar with ⌃⌘S and the inspector with ⌃⌘I or the toolbar’s inspector button.
+The window has three parts: the library sidebar on the left, the canvas in the middle and the inspector on the right. Randomize, Copy Image and Export Image are in the toolbar. Hide the sidebar with ⌃⌘S and the inspector with ⌥⌘I or the toolbar’s inspector button.
 
 Closing the window keeps Undertone running. Reopen it from the Dock or with ⌘0. Quit the app with ⌘Q.
 
@@ -38,7 +38,7 @@ Closing the window keeps Undertone running. Reopen it from the Dock or with ⌘0
 
 The same commands are in the File menu and the row’s right-click menu, and all of them can be undone. Drag a saved gradient to reorder the Saved section. The right-click menu also has Rename, Duplicate, Export Recipe and Delete (Discard for an unsaved gradient). New Gradient (⌘N) starts an empty unsaved gradient.
 
-**Colors.** The Colors tab holds collapsible collections of named colors. A collection can be a full brand library or a small palette. Coldwell Banker is added on first launch as an ordinary collection: edit, rename or delete it like any other. Every click on a swatch adds that color to the gradient, so a color can appear more than once; a badge shows how many times. Right-click a swatch to edit, rename or delete it. Each collection's menu adds colors, renames, exports and deletes it. New Collection at the bottom also imports a collection or turns the gradient's colors into one. On macOS 27 and later, drag a swatch to reorder it or move it into another collection.
+**Colors.** The Colors tab holds collapsible collections of named colors. A collection can be a full brand library or a small palette. Coldwell Banker is added on first launch as an ordinary collection: edit, rename or delete it like any other. Every click on a swatch adds that color to the gradient, so a color can appear more than once; a badge shows how many times. Right-click a swatch to edit, rename or delete it. Each collection's menu adds colors, renames, exports and deletes it. New Collection at the bottom also imports a collection or turns the gradient's colors into one. The Colors menu in the menu bar has the same commands; Add Color and Export Collection list each collection by name. On macOS 27 and later, drag a swatch to reorder it or move it into another collection.
 
 **Names.** New gradients get a name from their colors, and the name follows the colors until you rename it. The dice button next to the name offers five ideas; More Ideas asks again. On a Mac with Apple Intelligence turned on (macOS 26 or later), the button shows sparkles and the ideas come from Apple's on-device model; otherwise a deterministic word picker supplies them. Exports use the name and size, such as `Harbor Hush 2160x2880.png`.
 
@@ -53,7 +53,7 @@ The same commands are in the File menu and the row’s right-click menu, and all
 - **Glow** radiates from a draggable center that can sit off the canvas.
 - **Aurora** makes sweeping, seed-driven color ribbons.
 
-Randomize (⌘R) changes the geometry that matters for the current style. Every edit can be undone (⌘Z), including changes to colors, collections and gradient names; a slider drag undoes in one step. Opening another gradient clears its canvas edits from the undo history but keeps library changes. Copy Image (⇧⌘C) and Export Image (⌘E) render at full size. Export Recipe and Import Recipe move portable `.undertone.json` files between Macs.
+Randomize (⌘R) changes the geometry that matters for the current style. Every edit can be undone (⌘Z), including changes to colors, collections and gradient names; a slider drag undoes in one step. Opening another gradient clears its canvas edits from the undo history but keeps library changes. Copy Image (⇧⌘C) and Export Image (⌘E) render at full size. Export Image saves PNG or JPEG; Settings (⌘,) sets the format its save panel starts on and the JPEG quality. The Gradient menu also holds Canvas Size, the Texture switch, Shuffle Flow, Reset Style, Reset Texture and Remove All Colors. Export Recipe and Import Recipe move portable `.undertone.json` files between Macs.
 
 Gradients, collections and colors are stored under `~/Library/Application Support/Undertone/`. Older gradient presets, which saved only colors, move into the Gradients library on first launch.
 

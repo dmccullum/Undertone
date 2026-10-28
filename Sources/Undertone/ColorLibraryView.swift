@@ -6,15 +6,26 @@ enum SidebarTab: String {
 }
 
 struct SidebarView: View {
+    @Environment(StudioModel.self) private var model
     @AppStorage("sidebarTab") private var tab: SidebarTab = .gradients
+    /// Held here rather than in the Colors tab so the menu bar can open one from either tab.
+    @State private var colorSheet: ColorSheet?
 
     var body: some View {
         Group {
             switch tab {
             case .gradients: GradientLibraryView()
-            case .colors: ColorLibraryView()
+            case .colors: ColorLibraryView(showSheet: { colorSheet = $0 })
             }
         }
+        .sheet(item: $colorSheet) { sheet in
+            sheetContent(sheet)
+                .environment(model)
+        }
+        .focusedSceneValue(\.colorSheetAction, ColorSheetAction { sheet in
+            tab = .colors
+            colorSheet = sheet
+        })
         .safeAreaBar(edge: .top, spacing: 0) {
             LibraryTabPicker(tab: $tab)
                 .padding(.horizontal, 12)
@@ -23,6 +34,37 @@ struct SidebarView: View {
                 .frame(maxWidth: .infinity)
         }
     }
+
+    @ViewBuilder private func sheetContent(_ sheet: ColorSheet) -> some View {
+        switch sheet {
+        case .addColor(let libraryID):
+            ColorEditorSheet(title: "Add a Color", confirmTitle: "Add Color", name: "", hex: model.recipe.stops.first?.hex ?? "012169") { name, hex in
+                model.saveColor(name: name, hex: hex, libraryID: libraryID) != nil
+            }
+        case .editColor(let libraryID, let color):
+            ColorEditorSheet(title: "Edit Color", confirmTitle: "Save", name: color.name, hex: color.hex) { name, hex in
+                model.updateLibraryColor(color.id, in: libraryID, name: name, hex: hex)
+            }
+        case .newCollection:
+            NameSheet(title: "New Collection", message: "A collection holds named colors: a brand library or a small palette.", confirmTitle: "Create", name: "") { name in
+                model.createColorLibrary(name: name) != nil
+            }
+        case .renameCollection(let library):
+            NameSheet(title: "Rename Collection", message: nil, confirmTitle: "Rename", name: library.name) { name in
+                model.renameColorLibrary(id: library.id, to: name)
+            }
+        }
+    }
+}
+
+/// Opens a Colors sheet (New Collection…, Add Color…) from the menu bar, switching the sidebar to Colors.
+struct ColorSheetAction {
+    let open: (ColorSheet) -> Void
+    func callAsFunction(_ sheet: ColorSheet) { open(sheet) }
+}
+
+extension FocusedValues {
+    @Entry var colorSheetAction: ColorSheetAction?
 }
 
 /// An equal-width, two-segment control for the sidebar tabs — tidier than a content-sized
@@ -213,7 +255,7 @@ private struct SwatchReordering: ViewModifier {
 }
 
 /// The sheets the Colors tab can show.
-private enum ColorSheet: Identifiable {
+enum ColorSheet: Identifiable {
     case addColor(libraryID: UUID)
     case editColor(libraryID: UUID, color: LibraryColor)
     case newCollection
@@ -232,7 +274,7 @@ private enum ColorSheet: Identifiable {
 struct ColorLibraryView: View {
     @Environment(StudioModel.self) private var model
     @AppStorage("collapsedCollections") private var collapsedStorage = ""
-    @State private var sheet: ColorSheet?
+    let showSheet: (ColorSheet) -> Void
     @State private var deleting: ColorLibrary?
 
     private var collapsed: Set<String> {
@@ -246,7 +288,7 @@ struct ColorLibraryView: View {
                     CollectionSection(
                         library: library,
                         isExpanded: expansion(for: library),
-                        showSheet: { sheet = $0 },
+                        showSheet: showSheet,
                         requestDelete: { deleting = $0 }
                     )
                 }
@@ -258,7 +300,7 @@ struct ColorLibraryView: View {
         .safeAreaBar(edge: .bottom, spacing: 0) {
             HStack {
                 Menu {
-                    Button("New Collection…", systemImage: "folder.badge.plus") { sheet = .newCollection }
+                    Button("New Collection…", systemImage: "folder.badge.plus") { showSheet(.newCollection) }
                     Button("New Collection from Gradient Colors", systemImage: "square.stack") {
                         model.createColorLibraryFromCurrentColors()
                     }
@@ -270,7 +312,7 @@ struct ColorLibraryView: View {
                 } label: {
                     Label("New Collection", systemImage: "plus")
                 } primaryAction: {
-                    sheet = .newCollection
+                    showSheet(.newCollection)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -278,10 +320,6 @@ struct ColorLibraryView: View {
                 Spacer()
             }
             .padding(10)
-        }
-        .sheet(item: $sheet) { sheet in
-            sheetContent(sheet)
-                .environment(model)
         }
         .confirmationDialog(
             "Delete \(deleting?.name ?? "collection")?",
@@ -306,27 +344,6 @@ struct ColorLibraryView: View {
                 collapsedStorage = keys.sorted().joined(separator: ",")
             }
         )
-    }
-
-    @ViewBuilder private func sheetContent(_ sheet: ColorSheet) -> some View {
-        switch sheet {
-        case .addColor(let libraryID):
-            ColorEditorSheet(title: "Add a Color", confirmTitle: "Add Color", name: "", hex: model.recipe.stops.first?.hex ?? "012169") { name, hex in
-                model.saveColor(name: name, hex: hex, libraryID: libraryID) != nil
-            }
-        case .editColor(let libraryID, let color):
-            ColorEditorSheet(title: "Edit Color", confirmTitle: "Save", name: color.name, hex: color.hex) { name, hex in
-                model.updateLibraryColor(color.id, in: libraryID, name: name, hex: hex)
-            }
-        case .newCollection:
-            NameSheet(title: "New Collection", message: "A collection holds named colors: a brand library or a small palette.", confirmTitle: "Create", name: "") { name in
-                model.createColorLibrary(name: name) != nil
-            }
-        case .renameCollection(let library):
-            NameSheet(title: "Rename Collection", message: nil, confirmTitle: "Rename", name: library.name) { name in
-                model.renameColorLibrary(id: library.id, to: name)
-            }
-        }
     }
 }
 

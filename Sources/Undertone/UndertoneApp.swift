@@ -52,7 +52,6 @@ struct UndertoneApp: App {
             AboutCommands()
             HelpCommands()
             SidebarCommands()
-            InspectorCommands()
             StudioCommands(model: model)
         }
         Settings {
@@ -83,8 +82,22 @@ private struct HelpCommands: Commands {
     }
 }
 
+/// Opens the Custom Size sheet from Gradient › Canvas Size.
+struct CustomSizeAction {
+    let open: () -> Void
+    func callAsFunction() { open() }
+}
+
+extension FocusedValues {
+    @Entry var customSizeAction: CustomSizeAction?
+}
+
 struct StudioCommands: Commands {
     let model: StudioModel
+    /// The same setting ContentView's inspector reads, so the menu item and toolbar button agree.
+    @AppStorage("showsInspector") private var showsInspector = true
+    @FocusedValue(\.colorSheetAction) private var colorSheetAction
+    @FocusedValue(\.customSizeAction) private var customSizeAction
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -116,6 +129,11 @@ struct StudioCommands: Commands {
             Button("Export Recipe…") { model.exportRecipe() }
                 .keyboardShortcut("e", modifiers: [.command, .option])
         }
+        // Replaces the system inspector command so the shortcut is ⌥⌘I, the family's inspector key.
+        CommandGroup(after: .sidebar) {
+            Button(showsInspector ? "Hide Inspector" : "Show Inspector") { showsInspector.toggle() }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+        }
         CommandMenu("Gradient") {
             Button("Randomize") { model.randomize() }
                 .keyboardShortcut("r")
@@ -130,6 +148,47 @@ struct StudioCommands: Commands {
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
             }
+            Menu("Canvas Size") {
+                ForEach(CanvasPreset.allCases) { preset in
+                    Toggle(preset.title, isOn: Binding(
+                        get: { CanvasPreset.matching(width: model.recipe.width, height: model.recipe.height) == preset },
+                        set: { if $0 { model.setCanvasSize(width: preset.size.width, height: preset.size.height) } }
+                    ))
+                }
+                Divider()
+                Button("Custom Size…") { customSizeAction?() }
+                    .disabled(customSizeAction == nil)
+            }
+            Toggle("Texture", isOn: Binding(get: { model.recipe.textureEnabled }, set: { model.recipe.textureEnabled = $0 }))
+            Divider()
+            Button(model.recipe.mode == .tonal ? "Shuffle Texture" : "Shuffle Flow") { model.shuffleMesh() }
+                .disabled(model.recipe.mode != .organic && model.recipe.mode != .tonal)
+            Button("Reset Style") { model.resetStyle() }
+            Button("Reset Texture") { model.resetTexture() }
+            Divider()
+            Button("Remove All Colors") { model.removeAllColors() }
+                .disabled(model.recipe.stops.isEmpty)
+        }
+        CommandMenu("Colors") {
+            Button("New Collection…") { colorSheetAction?(.newCollection) }
+                .disabled(colorSheetAction == nil)
+            Button("New Collection from Gradient Colors") { model.createColorLibraryFromCurrentColors() }
+                .disabled(model.recipe.stops.isEmpty)
+            Button("Import Collection…") { model.importColorLibraryFromPanel() }
+            Divider()
+            // Collections have no selection, so these name their target in a submenu.
+            Menu("Add Color") {
+                ForEach(model.colorLibraries) { library in
+                    Button("\(library.name)…") { colorSheetAction?(.addColor(libraryID: library.id)) }
+                }
+            }
+            .disabled(colorSheetAction == nil || model.colorLibraries.isEmpty)
+            Menu("Export Collection") {
+                ForEach(model.colorLibraries) { library in
+                    Button("\(library.name)…") { model.exportColorLibrary(id: library.id) }
+                }
+            }
+            .disabled(model.colorLibraries.isEmpty)
         }
     }
 }

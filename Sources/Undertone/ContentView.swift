@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(StudioModel.self) private var model
     @Environment(\.undoManager) private var undoManager
     @State private var renaming = false
+    @State private var choosingCustomSize = false
     @AppStorage("showsInspector") private var showsInspector = true
 
     var body: some View {
@@ -13,8 +14,8 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 340)
         } detail: {
             StudioCanvas()
-                // The system inspector: a full-height trailing pane, a View menu item and
-                // ⌃⌘I (InspectorCommands), and the toolbar toggle below.
+                // The system inspector: a full-height trailing pane, toggled by View › Show Inspector
+                // (⌥⌘I, in StudioCommands) and the toolbar button below.
                 .inspector(isPresented: $showsInspector) {
                     InspectorView()
                         .inspectorColumnWidth(min: 280, ideal: 300, max: 360)
@@ -24,7 +25,7 @@ struct ContentView: View {
                         Button { showsInspector.toggle() } label: {
                             Label(showsInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing")
                         }
-                        .help(showsInspector ? "Hide the inspector (⌃⌘I)" : "Show the inspector (⌃⌘I)")
+                        .help(showsInspector ? "Hide the inspector (⌥⌘I)" : "Show the inspector (⌥⌘I)")
                     }
                 }
         }
@@ -43,6 +44,10 @@ struct ContentView: View {
             RenameGradientSheet().environment(model)
         }
         .onChange(of: model.renameRequest) { _, _ in renaming = true }
+        .sheet(isPresented: $choosingCustomSize) {
+            CustomSizeForm(isPresented: $choosingCustomSize).environment(model)
+        }
+        .focusedSceneValue(\.customSizeAction, CustomSizeAction { choosingCustomSize = true })
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
         .alert("Couldn’t complete that action", isPresented: errorIsPresented) {

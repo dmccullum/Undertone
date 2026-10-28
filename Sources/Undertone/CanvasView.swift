@@ -25,13 +25,16 @@ struct StudioCanvas: View {
         // The title is the native window title, with "Unsaved" as its subtitle for unsaved work; the
         // toolbar just carries the actions on the trailing side.
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarItem(placement: .primaryAction) {
                 Button { model.randomize() } label: { Label("Randomize", systemImage: "shuffle") }
                     .help("Randomize the layout (⌘R)")
-                Button { model.copyImage() } label: { Label("Copy image", systemImage: "doc.on.doc") }
+            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { model.copyImage() } label: { Label("Copy Image", systemImage: "doc.on.doc") }
                     .help("Copy the full-size image (⇧⌘C)")
                     .disabled(model.isRendering)
-                Button { model.exportImage() } label: { Label("Export", systemImage: "square.and.arrow.up") }
+                Button { model.exportImage() } label: { Label("Export Image", systemImage: "square.and.arrow.up") }
                     .help("Export a PNG or JPEG (⌘E)")
                     .disabled(model.isRendering)
             }
@@ -72,7 +75,9 @@ struct CanvasSizeMenu: View {
     }
 }
 
-private struct CustomSizeForm: View {
+/// Width and height fields for a canvas size that isn't a preset. Shown from the inspector's size
+/// menu and from Gradient › Canvas Size › Custom Size….
+struct CustomSizeForm: View {
     @Environment(StudioModel.self) private var model
     @Binding var isPresented: Bool
     @State private var width = ""
