@@ -692,8 +692,6 @@ private struct ColorTray: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassEffect(.regular, in: Capsule())
-        .overlay { Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
         // Hovering anywhere over the tray reveals all the canvas points.
         .onHover { model.setTrayHovering($0) }
@@ -762,8 +760,6 @@ private struct MeshTray: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     private func cellView(_ index: Int, diameter: CGFloat) -> some View {
@@ -813,22 +809,27 @@ private struct StopChip: View {
 
     var body: some View {
         ColorDot(hex: stop.hex, size: 30)
+            // Hover rings the chip; only a drag lifts (scales) it.
+            .overlay {
+                Circle().strokeBorder(Color.primary.opacity(hovering && !isLifted ? 0.45 : 0), lineWidth: 2)
+            }
             .shadow(color: .black.opacity(isLifted ? 0.3 : 0), radius: 8, y: 5)
-            .scaleEffect(isRemoving ? 0.8 : (isLifted ? 1.18 : (hovering ? 1.08 : 1)))
+            .scaleEffect(isRemoving ? 0.8 : (isLifted ? 1.18 : 1))
             .opacity(isRemoving ? 0.4 : 1)
             .overlay(alignment: .top) {
                 if isRemoving {
+                    // A flat label: the tray it rises from is already glass.
                     Text("Remove")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .glassEffect(.regular, in: Capsule())
+                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
                         .fixedSize()
                         .offset(y: -24)
                 }
             }
-            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: hovering)
-            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isLifted)
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .animation(.snappy(duration: 0.25), value: isLifted)
             .animation(.easeOut(duration: 0.15), value: isRemoving)
             .contentShape(Circle())
             .onHover { isHovering in

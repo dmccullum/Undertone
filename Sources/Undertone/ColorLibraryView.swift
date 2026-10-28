@@ -67,41 +67,23 @@ extension FocusedValues {
     @Entry var colorSheetAction: ColorSheetAction?
 }
 
-/// An equal-width, two-segment control for the sidebar tabs — tidier than a content-sized
-/// segmented picker whose segments differ in width.
+/// The sidebar's Gradients and Colors tabs: the system's tab-style picker on macOS 27 and later,
+/// a segmented one on macOS 26.
 private struct LibraryTabPicker: View {
     @Binding var tab: SidebarTab
 
     var body: some View {
-        HStack(spacing: 4) {
-            segment("Gradients", .gradients)
-            segment("Colors", .colors)
+        let picker = Picker("Library", selection: $tab) {
+            Text("Gradients").tag(SidebarTab.gradients)
+            Text("Colors").tag(SidebarTab.colors)
         }
-        .padding(3)
-        .glassEffect(.regular, in: Capsule())
-    }
-
-    private func segment(_ title: String, _ value: SidebarTab) -> some View {
-        let selected = tab == value
-        return Button {
-            withAnimation(.easeOut(duration: 0.15)) { tab = value }
-        } label: {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-                .background {
-                    if selected {
-                        Capsule()
-                            .fill(Color(nsColor: .controlColor))
-                            .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
-                    }
-                }
-                .foregroundStyle(selected ? .primary : .secondary)
-                .contentShape(Rectangle())
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
+        if #available(macOS 27.0, *) {
+            picker.pickerStyle(.tabs)
+        } else {
+            picker.pickerStyle(.segmented)
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -482,19 +464,26 @@ private struct SwatchTile: View {
                             shape.strokeBorder(Color.accentColor, lineWidth: 2.5)
                         }
                     }
-                    .overlay(alignment: .topTrailing) {
-                        if count > 0 {
-                            Text(count > 1 ? "\(count)" : "✓")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(minWidth: 16, minHeight: 16)
-                                .background(Color.accentColor, in: Circle())
-                                .offset(x: 4, y: -4)
-                                .transition(.scale.combined(with: .opacity))
+                    .overlay {
+                        // Hover outlines the swatch instead of growing it.
+                        if hovering && isEnabled && count == 0 {
+                            shape.strokeBorder(Color.primary.opacity(0.35), lineWidth: 1.5)
                         }
                     }
-                    .shadow(color: .black.opacity(hovering ? 0.22 : 0.08), radius: hovering ? 6 : 2, y: 2)
-                    .scaleEffect(hovering && isEnabled ? 1.04 : 1)
+                    .overlay(alignment: .topTrailing) {
+                        if count > 0 {
+                            Group {
+                                if count > 1 { Text("\(count)") } else { Image(systemName: "checkmark") }
+                            }
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Color.accentColor, in: Circle())
+                            .offset(x: 4, y: -4)
+                            .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .shadow(color: .black.opacity(0.08), radius: 2, y: 2)
                 Text(color.displayName)
                     .font(.caption)
                     .lineLimit(1)
@@ -506,8 +495,8 @@ private struct SwatchTile: View {
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.5)
         .onHover { hovering = $0 }
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: count)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.snappy, value: count)
         .help("Add \(color.displayName) · #\(color.hex)")
         .accessibilityLabel("\(color.displayName), \(color.hex)")
         .accessibilityValue(count == 0 ? "Not in gradient" : "In gradient \(count) times")
@@ -527,12 +516,12 @@ private struct AddSwatchTile: View {
                     .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                     .foregroundStyle(.secondary)
                     .frame(height: 44)
+                    .foregroundStyle(hovering ? .primary : .secondary)
                     .overlay {
                         Image(systemName: "plus")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(hovering ? .primary : .secondary)
                     }
-                    .scaleEffect(hovering ? 1.04 : 1)
                 Text("Add")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -541,7 +530,7 @@ private struct AddSwatchTile: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .help("Add a color to this collection")
         .accessibilityLabel("Add a color")
     }

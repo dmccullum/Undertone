@@ -339,11 +339,11 @@ private struct StyleTile: View {
                 .frame(height: 50)
                 .frame(maxWidth: .infinity)
                 .clipShape(shape)
+                // Hover strengthens the outline instead of growing the tile.
                 .overlay {
-                    shape.strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: isSelected ? 2.5 : 1)
+                    shape.strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(hovering ? 0.35 : 0.1), lineWidth: isSelected ? 2.5 : (hovering ? 1.5 : 1))
                 }
-                .shadow(color: .black.opacity(hovering ? 0.22 : 0.08), radius: hovering ? 6 : 2, y: 2)
-                .scaleEffect(hovering ? 1.04 : 1)
+                .shadow(color: .black.opacity(0.08), radius: 2, y: 2)
                 Text(mode.title)
                     .font(.caption)
                     .foregroundStyle(isSelected ? .primary : .secondary)
@@ -352,7 +352,7 @@ private struct StyleTile: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .accessibilityLabel("\(mode.title) style")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
