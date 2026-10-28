@@ -50,6 +50,7 @@ struct UndertoneApp: App {
         .keyboardShortcut("0", modifiers: .command)
         .commands {
             AboutCommands()
+            HelpCommands()
             SidebarCommands()
             InspectorCommands()
             StudioCommands(model: model)
@@ -64,6 +65,17 @@ private struct AboutCommands: Commands {
                 NSApp.activate()
                 AboutWindowController.shared.show()
             }
+        }
+    }
+}
+
+private struct HelpCommands: Commands {
+    private static let usageURL = URL(string: "https://github.com/dmccullum/Undertone/blob/main/docs/USAGE.md")!
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Undertone Help") { NSWorkspace.shared.open(Self.usageURL) }
+                .keyboardShortcut("?", modifiers: .command)
         }
     }
 }
