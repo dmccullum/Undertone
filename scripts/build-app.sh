@@ -37,6 +37,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>5</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
+<key>NSHumanReadableCopyright</key><string>Copyright © 2026 Daniel McCullum. Licensed under GPL-3.0.</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST

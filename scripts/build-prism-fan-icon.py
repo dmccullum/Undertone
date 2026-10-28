@@ -179,7 +179,7 @@ doc = {
     "fill": {"linear-gradient": [srgb(P["bg"][0]), srgb(P["bg"][1])],
              "orientation": {"start": {"x": 0.2, "y": 0}, "stop": {"x": 0.8, "y": 1}}},
     "groups": [group(m, gi) for gi, m in enumerate(P["groups"])],
-    "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
+    "supported-platforms": {"squares": "shared"},
 }
 # drop artwork no layer uses (highlights for chips that keep their own group, the pin when it is left out)
 used = {l["image-name"] for g in doc["groups"] for l in g["layers"]}
