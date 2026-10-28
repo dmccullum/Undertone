@@ -13,7 +13,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 340)
         } detail: {
             StudioCanvas()
-                // The system inspector: a full-height trailing pane on macOS 26, a View menu item and
+                // The system inspector: a full-height trailing pane, a View menu item and
                 // ⌃⌘I (InspectorCommands), and the toolbar toggle below.
                 .inspector(isPresented: $showsInspector) {
                     InspectorView()

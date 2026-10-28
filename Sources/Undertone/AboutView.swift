@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-@MainActor
 final class AboutWindowController: NSWindowController {
     static let shared = AboutWindowController()
     /// Lets the app delegate's window styling skip this panel, which draws its own backdrop.

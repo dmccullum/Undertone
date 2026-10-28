@@ -15,25 +15,12 @@ struct SidebarView: View {
             case .colors: ColorLibraryView()
             }
         }
-        .sidebarBar(edge: .top) {
+        .safeAreaBar(edge: .top, spacing: 0) {
             LibraryTabPicker(tab: $tab)
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-extension View {
-    /// A bar pinned to the top or bottom of a sidebar list. On macOS 26 and later it floats over the
-    /// list, which scrolls under it with the system's scroll-edge effect, instead of sitting on an
-    /// opaque band; before that it sits on the bar material.
-    @ViewBuilder func sidebarBar<Bar: View>(edge: VerticalEdge, @ViewBuilder _ bar: () -> Bar) -> some View {
-        if #available(macOS 26.0, *) {
-            safeAreaBar(edge: edge, spacing: 0, content: bar)
-        } else {
-            safeAreaInset(edge: edge, spacing: 0) { bar().background(.bar) }
         }
     }
 }
@@ -49,22 +36,7 @@ private struct LibraryTabPicker: View {
             segment("Colors", .colors)
         }
         .padding(3)
-        .modifier(TrackBackground())
-    }
-
-    /// Liquid Glass capsule on macOS 26 and later, a tinted rounded rectangle before that.
-    private struct TrackBackground: ViewModifier {
-        func body(content: Content) -> some View {
-            if #available(macOS 26.0, *) {
-                content.glassEffect(.regular, in: Capsule())
-            } else {
-                content.background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-        }
-    }
-
-    private var thumbShape: AnyShape {
-        if #available(macOS 26.0, *) { AnyShape(Capsule()) } else { AnyShape(RoundedRectangle(cornerRadius: 6, style: .continuous)) }
+        .glassEffect(.regular, in: Capsule())
     }
 
     private func segment(_ title: String, _ value: SidebarTab) -> some View {
@@ -78,7 +50,7 @@ private struct LibraryTabPicker: View {
                 .padding(.vertical, 4)
                 .background {
                     if selected {
-                        thumbShape
+                        Capsule()
                             .fill(Color(nsColor: .controlColor))
                             .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
                     }
@@ -114,7 +86,6 @@ struct GradientLibraryView: View {
                 }
             }
             .listStyle(.sidebar)
-            .modifier(HeaderSpacing())
             // New, Duplicate and edits insert at the top of their section; scroll there so the new
             // row isn't tucked under the tab picker.
             .onChange(of: model.currentGradientID) { _, id in
@@ -126,7 +97,7 @@ struct GradientLibraryView: View {
         .onDeleteCommand {
             if let id = model.currentGradientID { model.deleteGradient(id: id) }
         }
-        .sidebarBar(edge: .bottom) {
+        .safeAreaBar(edge: .bottom, spacing: 0) {
             HStack(spacing: 12) {
                 Button("New", systemImage: "plus") { model.newGradient() }
                     .help("Start a new gradient (⌘N)")
@@ -180,19 +151,6 @@ struct GradientLibraryView: View {
         Button("Export Recipe…") { model.exportRecipe(id: gradient.id) }
         Divider()
         Button(gradient.isUnsaved ? "Discard" : "Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
-    }
-}
-
-/// Room between the tab picker and the first section header. On macOS 26 and later the picker's
-/// safe-area bar already leaves it; a content margin on top of that bar made the list jump a few
-/// points whenever the sidebar redrew (hovering the color tray, for one).
-private struct HeaderSpacing: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-        } else {
-            content.contentMargins(.top, 8, for: .scrollContent)
-        }
     }
 }
 
@@ -297,7 +255,7 @@ struct ColorLibraryView: View {
             .padding(.bottom, 12)
             .modifier(SwatchReordering(model: model))
         }
-        .sidebarBar(edge: .bottom) {
+        .safeAreaBar(edge: .bottom, spacing: 0) {
             HStack {
                 Menu {
                     Button("New Collection…", systemImage: "folder.badge.plus") { sheet = .newCollection }

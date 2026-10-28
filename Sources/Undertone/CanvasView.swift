@@ -17,7 +17,7 @@ struct StudioCanvas: View {
                 .padding(.bottom, 20)
                 .padding(.horizontal, 24)
         }
-        // On macOS 26 the canvas column runs under the floating sidebar, and the split view counts
+        // The canvas column runs under the floating sidebar, and the split view counts
         // the sidebar twice when it adds up the window's minimum width: once for the sidebar column
         // and again inside this column's minimum. Any minimum here (the color tray's width) then
         // lands on top of that, so the canvas reports none and ContentView sets the window's minimum.
@@ -616,20 +616,7 @@ private extension View {
         font(.callout.weight(.medium))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .floatingBackground(in: Capsule(), shadow: true)
-    }
-}
-
-extension View {
-    /// Controls that float over the canvas: Liquid Glass on macOS 26 and later, which brings its own
-    /// depth, and a material (optionally with a shadow) before that.
-    @ViewBuilder func floatingBackground(in shape: some Shape, shadow: Bool = false) -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: shape)
-        } else {
-            background(.regularMaterial, in: shape)
-                .shadow(color: .black.opacity(shadow ? 0.15 : 0), radius: 8, y: 3)
-        }
+            .glassEffect(.regular, in: Capsule())
     }
 }
 
@@ -699,7 +686,7 @@ private struct ColorTray: View {
         .coordinateSpace(name: "tray")
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .floatingBackground(in: Capsule())
+        .glassEffect(.regular, in: Capsule())
         .overlay { Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
@@ -769,7 +756,7 @@ private struct MeshTray: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .floatingBackground(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
@@ -830,7 +817,7 @@ private struct StopChip: View {
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .floatingBackground(in: Capsule())
+                        .glassEffect(.regular, in: Capsule())
                         .fixedSize()
                         .offset(y: -24)
                 }
@@ -919,7 +906,7 @@ private struct StopEditor: View {
                         dismiss()
                         let target = self.model
                         let id = stopID
-                        Task { @MainActor in
+                        Task {
                             try? await Task.sleep(nanoseconds: 200_000_000)
                             target.removeColor(id: id)
                         }

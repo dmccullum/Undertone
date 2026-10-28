@@ -7,7 +7,7 @@
 <p align="center">
   Make gradients with film grain on your Mac and export them as PNG or JPEG at any canvas size.
   <br>
-  Requires macOS 14 or later.
+  Requires macOS 26 or later.
 </p>
 
 <p align="center">

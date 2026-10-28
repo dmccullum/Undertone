@@ -2,7 +2,7 @@ import Foundation
 
 /// One control point of the Mesh style's grid. Each point owns its color, like a mesh fill in a
 /// design tool. Positions are fractions of the canvas; an empty `hex` is an unpainted point.
-struct MeshVertex: Codable, Equatable, Sendable {
+nonisolated struct MeshVertex: Codable, Equatable, Sendable {
     var x: Double
     var y: Double
     var hex: String = ""
@@ -10,7 +10,7 @@ struct MeshVertex: Codable, Equatable, Sendable {
 
 /// How mesh points were saved before they owned their colors (recipe version 4): a pinned tray color
 /// or none, meaning the automatic fill.
-struct LegacyMeshVertex: Decodable {
+nonisolated struct LegacyMeshVertex: Decodable {
     var x: Double
     var y: Double
     var hex: String?
@@ -20,7 +20,7 @@ struct LegacyMeshVertex: Decodable {
 /// Geometry for the Mesh style: a square grid of points, row by row from the top left, joined by a
 /// Catmull-Rom surface so the grid bends smoothly when a point moves. The renderer and the canvas
 /// handles share these functions, so the grid lines on screen follow the rendered seams.
-enum MeshGrid {
+nonisolated enum MeshGrid {
     static let sizes = [3, 4]
 
     static func clampedSize(_ size: Int) -> Int { min(4, max(3, size)) }

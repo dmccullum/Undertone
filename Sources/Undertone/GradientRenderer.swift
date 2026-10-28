@@ -2,7 +2,7 @@ import CoreGraphics
 import Dispatch
 import Foundation
 
-enum GradientRenderer {
+nonisolated enum GradientRenderer {
     enum RenderError: Error, Equatable {
         case invalidDimensions(width: Int, height: Int)
         case imageTooLarge(width: Int, height: Int)

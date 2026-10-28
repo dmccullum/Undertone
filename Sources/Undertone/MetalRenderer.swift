@@ -5,7 +5,7 @@ import Metal
 /// Renders on the GPU with one compute kernel for every style, from the same `Scene` the CPU
 /// renderer uses. Export reads the kernel's 8-bit sRGB bytes back into a `CGImage`; the preview can
 /// run the same kernel straight into a drawable. `GradientRenderer` stays the reference and fallback.
-final class MetalRenderer: @unchecked Sendable {
+nonisolated final class MetalRenderer: @unchecked Sendable {
     enum MetalError: Error { case noDevice, setupFailed, renderFailed(String) }
 
     /// Nil when this Mac has no usable Metal device or the shader fails to compile.
@@ -20,7 +20,7 @@ final class MetalRenderer: @unchecked Sendable {
         guard let device, let queue = device.makeCommandQueue() else { throw MetalError.noDevice }
         let options = MTLCompileOptions()
         // Precise math, so the GPU tracks the CPU reference.
-        if #available(macOS 15.0, *) { options.mathMode = .safe } else { options.fastMathEnabled = false }
+        options.mathMode = .safe
         let library = try device.makeLibrary(source: MetalShaders.source, options: options)
         guard let bytesFunction = library.makeFunction(name: "renderBytes"),
               let textureFunction = library.makeFunction(name: "renderTexture") else { throw MetalError.setupFailed }

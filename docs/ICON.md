@@ -1,6 +1,6 @@
 # Undertone icon
 
-The icon is the Prism Fan: five glass color chips fanned on a metal pin, over a violet-indigo background. Its source is the Icon Composer document `Icon/Undertone.icon`, and `scripts/build-app.sh` compiles it with `actool` into `Assets.car` (the Liquid Glass icon) plus `Undertone.icns` (the fallback on older systems).
+The icon is the Prism Fan: five glass color chips fanned on a metal pin, over a violet-indigo background. Its source is the Icon Composer document `Icon/Undertone.icon`, and `scripts/build-app.sh` compiles it with `actool` into `Assets.car` (the Liquid Glass icon) plus `Undertone.icns`.
 
 `scripts/build-prism-fan-icon.py` generates the whole document, its SVG layers and `icon.json`, so change the script rather than the document. Close the document in Icon Composer before running it; the script replaces the bundle.
 

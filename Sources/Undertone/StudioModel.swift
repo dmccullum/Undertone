@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-@MainActor @Observable final class StudioModel {
+@Observable final class StudioModel {
     private static let canvasWidthPreference = "canvasWidth"
     private static let canvasHeightPreference = "canvasHeight"
     private static let currentGradientPreference = "currentGradientID"
@@ -319,16 +319,14 @@ import UniformTypeIdentifiers
     private func registerGradientsUndo(_ actionName: String, restoring previous: LibrarySnapshot) {
         guard let undoManager else { return }
         undoManager.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated {
-                model.commitRecipe()
-                let current = model.librarySnapshot()
-                model.gradients = previous.gradients
-                model.currentGradientID = previous.currentID
-                UserDefaults.standard.set(previous.currentID?.uuidString, forKey: Self.currentGradientPreference)
-                if let gradient = model.currentGradient { model.load(gradient.recipe, animated: true) }
-                model.saveNow()
-                model.registerGradientsUndo(actionName, restoring: current)
-            }
+            model.commitRecipe()
+            let current = model.librarySnapshot()
+            model.gradients = previous.gradients
+            model.currentGradientID = previous.currentID
+            UserDefaults.standard.set(previous.currentID?.uuidString, forKey: Self.currentGradientPreference)
+            if let gradient = model.currentGradient { model.load(gradient.recipe, animated: true) }
+            model.saveNow()
+            model.registerGradientsUndo(actionName, restoring: current)
         }
         undoManager.setActionName(actionName)
     }
@@ -380,7 +378,7 @@ import UniformTypeIdentifiers
         }
         saveNow()
         undoManager?.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated { model.restoreDeletedGradient(removed, at: index) }
+            model.restoreDeletedGradient(removed, at: index)
         }
         undoManager?.setActionName(removed.isUnsaved ? "Discard Gradient" : "Delete Gradient")
         flash(removed.isUnsaved ? "Discarded \(removed.name)" : "Deleted \(removed.name)")
@@ -395,7 +393,7 @@ import UniformTypeIdentifiers
         saveNow()
         // Redo deletes it again, which registers the next undo.
         undoManager?.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated { model.deleteGradient(id: gradient.id) }
+            model.deleteGradient(id: gradient.id)
         }
         undoManager?.setActionName(gradient.isUnsaved ? "Discard Gradient" : "Delete Gradient")
     }
@@ -452,7 +450,7 @@ import UniformTypeIdentifiers
     private func registerRenameUndo(id: UUID, restoring previous: Naming) {
         guard let undoManager, let index = gradients.firstIndex(where: { $0.id == id }), naming(at: index) != previous else { return }
         undoManager.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated { model.restoreNaming(previous, of: id) }
+            model.restoreNaming(previous, of: id)
         }
         undoManager.setActionName("Rename Gradient")
     }
@@ -504,7 +502,7 @@ import UniformTypeIdentifiers
         if !undoBurstOpen {
             undoBurstOpen = true
             undoManager.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in
-                MainActor.assumeIsolated { self?.restore(old) }
+                self?.restore(old)
             }
             undoManager.setActionName("Gradient Change")
         }
@@ -519,7 +517,7 @@ import UniformTypeIdentifiers
     private func restore(_ target: GradientRecipe) {
         let current = recipe
         undoManager?.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in
-            MainActor.assumeIsolated { self?.restore(current) }
+            self?.restore(current)
         }
         undoBurstOpen = false
         isApplyingUndo = true
@@ -586,12 +584,10 @@ import UniformTypeIdentifiers
     private func registerLibraryUndo(_ actionName: String, restoring previous: [ColorLibrary]) {
         guard let undoManager, previous != colorLibraries else { return }
         undoManager.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated {
-                let current = model.colorLibraries
-                model.colorLibraries = previous
-                model.saveColorLibraries()
-                model.registerLibraryUndo(actionName, restoring: current)
-            }
+            let current = model.colorLibraries
+            model.colorLibraries = previous
+            model.saveColorLibraries()
+            model.registerLibraryUndo(actionName, restoring: current)
         }
         undoManager.setActionName(actionName)
     }

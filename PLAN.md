@@ -2,7 +2,7 @@
 
 Current direction: image handoff uses Copy Image and Save Image. Instagram (2160 × 2880) is available as a canvas preset.
 
-Working name: Undertone. SwiftUI interface, AppKit clipboard and native panels, local files and palettes. macOS 14+. No accounts, backend, paid APIs, or third-party packages.
+Working name: Undertone. SwiftUI interface, AppKit clipboard and native panels, local files and palettes. macOS 26+. No accounts, backend, paid APIs, or third-party packages.
 
 ## Interaction design
 

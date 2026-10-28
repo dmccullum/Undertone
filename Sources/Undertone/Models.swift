@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct ColorStop: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ColorStop: Codable, Identifiable, Equatable, Sendable {
     var id = UUID()
     var hex: String
     var x: Double
@@ -33,7 +33,7 @@ struct ColorStop: Codable, Identifiable, Equatable, Sendable {
 
 /// How Organic's colors move: melt in place, stretch like dragged paint, ripple in long waves, or
 /// bend with the original Organic's broad warp.
-enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
+nonisolated enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
     case still, pull, wave, classic
 
     var id: String { rawValue }
@@ -52,7 +52,7 @@ enum OrganicFlow: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
+nonisolated enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case organic
     case mesh
     case linear
@@ -83,7 +83,7 @@ enum GradientMode: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct GradientRecipe: Codable, Equatable, Sendable {
+nonisolated struct GradientRecipe: Codable, Equatable, Sendable {
     static let currentVersion = 5
 
     var stops: [ColorStop] = [.init(hex: "F3AC91", x: 0.18, y: 0.20), .init(hex: "7655A3", x: 0.78, y: 0.24), .init(hex: "F3CC91", x: 0.34, y: 0.82), .init(hex: "3B526E", x: 0.92, y: 0.85)]
@@ -238,7 +238,7 @@ struct GradientRecipe: Codable, Equatable, Sendable {
 }
 
 /// A complete, named composition in the gradient library.
-struct SavedGradient: Codable, Identifiable, Equatable {
+nonisolated struct SavedGradient: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
     /// False while the name is still generated from the colors.
@@ -253,7 +253,7 @@ struct SavedGradient: Codable, Identifiable, Equatable {
     var sourceID: UUID?
 }
 
-extension SavedGradient {
+nonisolated extension SavedGradient {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -268,13 +268,13 @@ extension SavedGradient {
 }
 
 /// Legacy "gradient preset" format, which stored only colors. Read once for migration.
-struct BrandPalette: Codable, Identifiable, Equatable {
+nonisolated struct BrandPalette: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
     var colors: [String]
 }
 
-struct LibraryColor: Codable, Identifiable, Equatable {
+nonisolated struct LibraryColor: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
     var hex: String
@@ -301,7 +301,7 @@ struct LibraryColor: Codable, Identifiable, Equatable {
 }
 
 /// A named collection of named colors. Brand libraries and small palettes are both collections.
-struct ColorLibrary: Codable, Identifiable, Equatable {
+nonisolated struct ColorLibrary: Codable, Identifiable, Equatable {
     static let coldwellBankerID = UUID(uuidString: "CB000001-0000-4000-8000-000000000001")!
     static let coldwellBanker = ColorLibrary(
         id: coldwellBankerID,
@@ -314,7 +314,7 @@ struct ColorLibrary: Codable, Identifiable, Equatable {
     var colors: [LibraryColor]
 }
 
-enum CanvasPreset: String, CaseIterable, Identifiable {
+nonisolated enum CanvasPreset: String, CaseIterable, Identifiable {
     case instagram = "2160x2880"
     case uhd = "3840x2160"
     case desktop = "2560x1440"
@@ -345,7 +345,7 @@ enum CanvasPreset: String, CaseIterable, Identifiable {
     }
 }
 
-enum Hex {
+nonisolated enum Hex {
     /// Uppercased six-digit hex without "#", or nil when the input isn't a color.
     static func normalized(_ input: String) -> String? {
         let cleaned = input.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "").uppercased()

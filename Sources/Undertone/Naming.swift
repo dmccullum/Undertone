@@ -1,10 +1,8 @@
 import Foundation
-#if canImport(FoundationModels)
 import FoundationModels
-#endif
 
 /// Plain-language descriptions of colors, used for names and for the Apple Intelligence brief.
-enum ColorNamer {
+nonisolated enum ColorNamer {
     enum Family: CaseIterable {
         case red, orange, amber, yellow, green, teal, cyan, blue, indigo, violet, pink
         case neutralLight, neutralMid, neutralDark
@@ -113,7 +111,7 @@ enum ColorNamer {
 }
 
 /// Deterministic word-picker names. The same colors and seed always give the same name.
-enum NameGenerator {
+nonisolated enum NameGenerator {
     static let untitled = "Untitled Gradient"
 
     static func name(for recipe: GradientRecipe, seed: Int) -> String {
@@ -209,19 +207,11 @@ enum NameGenerator {
 
 /// On-device Apple Intelligence names. Falls back to nothing when the model isn't available,
 /// so callers always keep the word-picker names as a baseline.
-enum NameIntelligence {
-    static var isAvailable: Bool {
-        #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) { return FoundationNamer.isAvailable }
-        #endif
-        return false
-    }
+nonisolated enum NameIntelligence {
+    static var isAvailable: Bool { FoundationNamer.isAvailable }
 
     static func suggestions(for brief: String) async -> [String] {
-        #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) { return await FoundationNamer.suggestions(for: brief) }
-        #endif
-        return []
+        await FoundationNamer.suggestions(for: brief)
     }
 
     static func cleaned(_ names: [String]) -> [String] {
@@ -239,16 +229,13 @@ enum NameIntelligence {
     }
 }
 
-#if canImport(FoundationModels)
-@available(macOS 26.0, *)
 @Generable
-struct GradientNameIdeas {
+nonisolated struct GradientNameIdeas {
     @Guide(description: "Five distinct names for the artwork, each one to three words in title case")
     var names: [String]
 }
 
-@available(macOS 26.0, *)
-enum FoundationNamer {
+nonisolated enum FoundationNamer {
     static var isAvailable: Bool {
         if case .available = SystemLanguageModel.default.availability { return true }
         return false
@@ -270,4 +257,3 @@ enum FoundationNamer {
         }
     }
 }
-#endif

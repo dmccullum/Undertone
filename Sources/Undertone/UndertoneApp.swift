@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-@MainActor final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
+final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
     private var observer: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -13,7 +13,7 @@ import SwiftUI
             guard let window = notification.object as? NSWindow else { return }
             MainActor.assumeIsolated { UndertoneAppDelegate.style(window) }
         }
-        Task { @MainActor in
+        Task {
             NSApplication.shared.windows.forEach { UndertoneAppDelegate.style($0) }
         }
     }

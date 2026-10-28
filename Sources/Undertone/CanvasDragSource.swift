@@ -35,10 +35,10 @@ final class DragSourceView: NSView, NSDraggingSource {
         let start = down.locationInWindow, now = event.locationInWindow
         guard hypot(now.x - start.x, now.y - start.y) > 4 else { return }
         mouseDownEvent = nil
-        MainActor.assumeIsolated { beginDrag(with: down) }
+        beginDrag(with: down)
     }
 
-    @MainActor private func beginDrag(with event: NSEvent) {
+    private func beginDrag(with event: NSEvent) {
         guard let model, let url = model.dragFile() else { return }
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
@@ -59,6 +59,6 @@ final class DragSourceView: NSView, NSDraggingSource {
 
     /// Edit › Copy while the canvas is focused.
     @objc func copy(_ sender: Any?) {
-        MainActor.assumeIsolated { model?.copyImage() }
+        model?.copyImage()
     }
 }

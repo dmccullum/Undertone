@@ -7,15 +7,15 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Undertone "$APP/Contents/MacOS/Undertone"
 
-# SwiftPM stamps the binary's SDK version with the deployment target (14.0), so AppKit treats the
-# app as built for Sonoma and keeps the pre-Tahoe look (square window corners, old controls).
-# Record the real SDK instead; the minimum OS stays 14.0.
-vtool -set-build-version macos 14.0 "$(xcrun --sdk macosx --show-sdk-version)" -replace \
+# SwiftPM stamps the binary's SDK version with the deployment target (26.0), so AppKit treats the
+# app as built against the 26 SDK and withholds behavior that newer SDKs opt into. Record the real
+# SDK instead; the minimum OS stays 26.0.
+vtool -set-build-version macos 26.0 "$(xcrun --sdk macosx --show-sdk-version)" -replace \
     -output "$APP/Contents/MacOS/Undertone" "$APP/Contents/MacOS/Undertone"
 
 # Compile the Icon Composer icon (Icon/Undertone.icon) into Assets.car + Undertone.icns.
 # The path must be absolute: actool's icon exporter fails on a relative one and writes nothing.
-# Assets.car carries the modern (Liquid Glass) icon; the .icns is the fallback on older systems.
+# Assets.car carries the Liquid Glass icon (CFBundleIconName); the .icns backs CFBundleIconFile.
 xcrun actool "$PWD/Icon/Undertone.icon" \
     --compile "$APP/Contents/Resources" \
     --app-icon "Undertone" \
@@ -36,7 +36,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>5</string>
-<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST

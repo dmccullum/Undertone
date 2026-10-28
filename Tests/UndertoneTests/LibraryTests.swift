@@ -298,7 +298,7 @@ final class LibraryTests: XCTestCase {
         return (model, undoManager)
     }
 
-    private func step(_ undoManager: UndoManager, _ action: () -> Void) {
+    @MainActor private func step(_ undoManager: UndoManager, _ action: () -> Void) {
         undoManager.beginUndoGrouping()
         action()
         undoManager.endUndoGrouping()

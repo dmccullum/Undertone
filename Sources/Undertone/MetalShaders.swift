@@ -2,7 +2,7 @@ import Foundation
 
 /// Slots in the float parameter buffer the Metal kernel reads. The shader's `#define`s are generated
 /// from these cases, so Swift and Metal can't disagree about the layout.
-enum MetalFloat: Int, CaseIterable {
+nonisolated enum MetalFloat: Int, CaseIterable {
     case grain
     case lineStartX, lineStartY, lineDX, lineDY, lineLengthSquared
     case centerX, centerY, fadeWidth
@@ -15,19 +15,19 @@ enum MetalFloat: Int, CaseIterable {
 }
 
 /// Slots in the integer parameter buffer.
-enum MetalInt: Int, CaseIterable {
+nonisolated enum MetalInt: Int, CaseIterable {
     case width, height, mode, hasColors, grainCellSize, grainSeed
     case stopCount, paletteCount, organicClassic
     case tileColumns, tileRows, tileSize, latticeCount
 }
 
 /// Buffer indices shared by every kernel.
-enum MetalBuffer: Int, CaseIterable {
+nonisolated enum MetalBuffer: Int, CaseIterable {
     case floats, ints, stops, palette, xWarp, yWarp, lattice, latticeColors, triangles, tileOffsets, tileIndices, output
 }
 
 /// The mode numbers the kernel switches on.
-extension GradientMode {
+nonisolated extension GradientMode {
     var metalIndex: Int32 {
         switch self {
         case .organic: 0
@@ -43,7 +43,7 @@ extension GradientMode {
 /// The Metal source for the renderer, compiled at runtime with `makeLibrary(source:)` because a plain
 /// `swift build` doesn't reliably compile `.metal` files in a Swift package. Every function mirrors
 /// its Swift counterpart in `GradientRenderer`; keep the two in step (the parity tests check).
-enum MetalShaders {
+nonisolated enum MetalShaders {
     static var source: String {
         let floats = MetalFloat.allCases.map { "#define F_\($0) \($0.rawValue)" }
         let ints = MetalInt.allCases.map { "#define I_\($0) \($0.rawValue)" }
