@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct StudioCanvas: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +40,7 @@ struct StudioCanvas: View {
 }
 
 struct CanvasSizeMenu: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @State private var showsCustom = false
 
     var body: some View {
@@ -60,7 +60,7 @@ struct CanvasSizeMenu: View {
         .help("Canvas size")
         .popover(isPresented: $showsCustom, arrowEdge: .bottom) {
             CustomSizeForm(isPresented: $showsCustom)
-                .environmentObject(model)
+                .environment(model)
         }
     }
 
@@ -73,7 +73,7 @@ struct CanvasSizeMenu: View {
 }
 
 private struct CustomSizeForm: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @Binding var isPresented: Bool
     @State private var width = ""
     @State private var height = ""
@@ -124,7 +124,7 @@ private struct CustomSizeForm: View {
 // MARK: - Artwork
 
 private struct ArtworkView: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @State private var hovering = false
     @State private var draggingHandle = false
     @State private var snappedKeys: Set<String> = []
@@ -268,7 +268,7 @@ private struct ArtworkView: View {
                 .popover(isPresented: Binding(get: { editingVertex == index }, set: { if !$0 { editingVertex = nil } }),
                          arrowEdge: MeshPointEditor.edge(x: vertices[index].x, y: vertices[index].y)) {
                     MeshPointEditor(index: index)
-                        .environmentObject(model)
+                        .environment(model)
                 }
                 .position(x: CGFloat(vertices[index].x) * size.width, y: CGFloat(vertices[index].y) * size.height)
                 .gesture(vertexDrag(index: index, size: size))
@@ -501,7 +501,7 @@ private struct PointHandle: View {
 
 /// A mesh point's color: any color already in the mesh or the gradient, or a custom one.
 struct MeshPointEditor: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     let index: Int
 
     /// Which side of a point its popover opens on, so it stays clear of the canvas edges.
@@ -590,7 +590,7 @@ private struct CenterHandle: View {
 }
 
 private struct CanvasToast: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
 
     var body: some View {
         Group {
@@ -636,7 +636,7 @@ extension View {
 // MARK: - Color tray
 
 private struct ColorTray: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @State private var dragID: UUID?
     @State private var dragStartIndex = 0
     @State private var dragTranslation: CGSize = .zero
@@ -743,7 +743,7 @@ private struct ColorTray: View {
 /// Mesh's tray: a small grid that mirrors the canvas points one to one. Click a cell to select that
 /// point (library clicks paint it), double-click for its colors; hovering lights the point up.
 private struct MeshTray: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @State private var editing: Int?
     @State private var lastClick: (index: Int, time: Date)?
 
@@ -798,7 +798,7 @@ private struct MeshTray: View {
                 }
             }
             .popover(isPresented: Binding(get: { editing == index }, set: { if !$0 { editing = nil } }), arrowEdge: .top) {
-                MeshPointEditor(index: index).environmentObject(model)
+                MeshPointEditor(index: index).environment(model)
             }
             .help(hex.isEmpty ? "Point \(index + 1): unpainted" : "Point \(index + 1): \(model.libraryName(for: hex) ?? ColorNamer.name(hex)). Double-click to edit.")
             .accessibilityElement()
@@ -810,7 +810,7 @@ private struct MeshTray: View {
 }
 
 private struct StopChip: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     let stop: ColorStop
     let isLifted: Bool
     let isRemoving: Bool
@@ -848,7 +848,7 @@ private struct StopChip: View {
             .onTapGesture { editing = true }
             .popover(isPresented: $editing, arrowEdge: .top) {
                 StopEditor(stopID: stop.id, dismiss: { editing = false })
-                    .environmentObject(model)
+                    .environment(model)
             }
             .contextMenu {
                 Button("Duplicate") { model.duplicateColor(id: stop.id) }
@@ -869,7 +869,7 @@ private struct StopChip: View {
 }
 
 private struct StopEditor: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     let stopID: UUID
     let dismiss: () -> Void
 
@@ -956,7 +956,7 @@ private struct StopEditor: View {
 }
 
 private struct AddStopButton: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @State private var showsPicker = false
     @State private var custom = Color(red: 0.84, green: 0.83, blue: 0.78)
 

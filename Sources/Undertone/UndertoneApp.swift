@@ -34,12 +34,12 @@ import SwiftUI
 @main
 struct UndertoneApp: App {
     @NSApplicationDelegateAdaptor(UndertoneAppDelegate.self) private var appDelegate
-    @StateObject private var model = StudioModel()
+    @State private var model = StudioModel()
 
     var body: some Scene {
         Window("Undertone", id: "studio") {
             ContentView()
-                .environmentObject(model)
+                .environment(model)
                 // ContentView sets the minimum width, which depends on whether the inspector is open.
                 .frame(minHeight: 660)
         }
@@ -67,7 +67,7 @@ private struct AboutCommands: Commands {
 }
 
 struct StudioCommands: Commands {
-    @ObservedObject var model: StudioModel
+    let model: StudioModel
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-@MainActor final class StudioModel: ObservableObject {
+@MainActor @Observable final class StudioModel {
     private static let canvasWidthPreference = "canvasWidth"
     private static let canvasHeightPreference = "canvasHeight"
     private static let currentGradientPreference = "currentGradientID"
@@ -11,32 +11,34 @@ import UniformTypeIdentifiers
     /// (`MetalCanvas`), so this image only feeds the blurred backdrop; on the CPU it is the canvas.
     nonisolated private static var previewSize: Double { RenderEngine.usesGPU ? 256 : 1_280 }
 
-    @Published var recipe = GradientRecipe() {
+    var recipe = GradientRecipe() {
         didSet { recipeDidChange(from: oldValue) }
     }
-    @Published private(set) var gradients: [SavedGradient] = []
+    private(set) var gradients: [SavedGradient] = []
     /// The gradient currently open on the canvas. Edits to `recipe` autosave into it only while it's
     /// an unsaved gradient; the first edit to a saved gradient opens an unsaved copy instead, so a
     /// saved gradient changes only through Update.
-    @Published private(set) var currentGradientID: UUID?
-    @Published var colorLibraries: [ColorLibrary] = [.coldwellBanker]
-    @Published private(set) var preview: NSImage?
+    private(set) var currentGradientID: UUID?
+    var colorLibraries: [ColorLibrary] = [.coldwellBanker]
+    private(set) var preview: NSImage?
     /// Changes only when the preview should crossfade.
-    @Published private(set) var previewIdentity = 0
-    @Published private(set) var styleThumbnails: [GradientMode: NSImage] = [:]
-    @Published private(set) var isRendering = false
-    @Published private(set) var toast: String?
-    @Published private(set) var renameRequest = 0
+    private(set) var previewIdentity = 0
+    private(set) var styleThumbnails: [GradientMode: NSImage] = [:]
+    private(set) var isRendering = false
+    private(set) var toast: String?
+    private(set) var renameRequest = 0
     /// While hovering the color tray, all points are revealed on the canvas.
-    @Published private(set) var pointsRevealed = false
+    private(set) var pointsRevealed = false
     /// The specific tray chip being hovered, emphasized among the revealed points.
-    @Published var highlightedStopID: UUID?
+    var highlightedStopID: UUID?
     /// Mesh: the point library clicks paint, and the mesh point being hovered in the tray.
-    @Published private(set) var selectedMeshPoint = 0
-    @Published var highlightedMeshPoint: Int?
-    @Published var errorMessage: String?
+    private(set) var selectedMeshPoint = 0
+    var highlightedMeshPoint: Int?
+    var errorMessage: String?
 
-    weak var undoManager: UndoManager?
+    // Everything below is bookkeeping no view draws from, so it's left out of observation. The
+    // thumbnail cache is written while views draw, and observing it would redraw them in a loop.
+    @ObservationIgnored weak var undoManager: UndoManager?
     /// Recipe edits undo against this target, so opening another gradient can drop them without
     /// also dropping library undo (colors, collections, names), which doesn't depend on the canvas.
     private let recipeUndoTarget = RecipeUndoTarget()
@@ -46,21 +48,21 @@ import UniformTypeIdentifiers
     private let legacyPalettesURL: URL
     private let colorLibrariesURL: URL
     private let legacyColorsURL: URL
-    private var idleTask: Task<Void, Never>?
-    private var toastTask: Task<Void, Never>?
-    private var undoBurstTask: Task<Void, Never>?
-    private var revealHideTask: Task<Void, Never>?
-    private var generation = 0
-    private var renderInFlight = false
-    private var renderPending = false
-    private var displayedIsInteractive = false
-    private var isLoadingGradient = false
-    private var isApplyingUndo = false
-    private var undoBurstOpen = false
-    private var animateNextPreview = false
-    private var thumbnailCache: [UUID: (recipe: GradientRecipe, image: NSImage)] = [:]
-    private var dragFileCache: (recipe: GradientRecipe, url: URL)?
-    private var terminationObserver: NSObjectProtocol?
+    @ObservationIgnored private var idleTask: Task<Void, Never>?
+    @ObservationIgnored private var toastTask: Task<Void, Never>?
+    @ObservationIgnored private var undoBurstTask: Task<Void, Never>?
+    @ObservationIgnored private var revealHideTask: Task<Void, Never>?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var renderInFlight = false
+    @ObservationIgnored private var renderPending = false
+    @ObservationIgnored private var displayedIsInteractive = false
+    @ObservationIgnored private var isLoadingGradient = false
+    @ObservationIgnored private var isApplyingUndo = false
+    @ObservationIgnored private var undoBurstOpen = false
+    @ObservationIgnored private var animateNextPreview = false
+    @ObservationIgnored private var thumbnailCache: [UUID: (recipe: GradientRecipe, image: NSImage)] = [:]
+    @ObservationIgnored private var dragFileCache: (recipe: GradientRecipe, url: URL)?
+    @ObservationIgnored private var terminationObserver: NSObjectProtocol?
 
     init(directory: URL? = nil) {
         let directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Undertone", isDirectory: true)

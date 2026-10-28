@@ -94,7 +94,7 @@ private struct LibraryTabPicker: View {
 // MARK: - Gradients
 
 struct GradientLibraryView: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @State private var renaming: SavedGradient?
 
     private var selection: Binding<UUID?> {
@@ -272,7 +272,7 @@ private enum ColorSheet: Identifiable {
 }
 
 struct ColorLibraryView: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @AppStorage("collapsedCollections") private var collapsedStorage = ""
     @State private var sheet: ColorSheet?
     @State private var deleting: ColorLibrary?
@@ -323,7 +323,7 @@ struct ColorLibraryView: View {
         }
         .sheet(item: $sheet) { sheet in
             sheetContent(sheet)
-                .environmentObject(model)
+                .environment(model)
         }
         .confirmationDialog(
             "Delete \(deleting?.name ?? "collection")?",
@@ -374,7 +374,7 @@ struct ColorLibraryView: View {
 
 /// One collapsible collection: a header row, then swatches shaped like the style tiles.
 private struct CollectionSection: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     let library: ColorLibrary
     @Binding var isExpanded: Bool
     let showSheet: (ColorSheet) -> Void

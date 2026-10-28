@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @Environment(\.undoManager) private var undoManager
     @State private var renaming = false
     @AppStorage("showsInspector") private var showsInspector = true
@@ -37,10 +37,10 @@ struct ContentView: View {
         .background { AmbientBackdrop() }
         // Drive the native window title (left-aligned, no toolbar-control pill). Unsaved work always
         // autosaves into its own unsaved gradient, so the subtitle marks it instead of "— Edited".
-        .background(WindowChrome(title: model.currentName.isEmpty ? "Untitled" : model.currentName))
+        .background(WindowChrome(title: model.currentName.isEmpty ? "Untitled" : model.currentName, subtitle: subtitle))
         .navigationSubtitle(subtitle)
         .sheet(isPresented: $renaming) {
-            RenameGradientSheet().environmentObject(model)
+            RenameGradientSheet().environment(model)
         }
         .onChange(of: model.renameRequest) { _, _ in renaming = true }
         .onAppear { model.undoManager = undoManager }
@@ -68,6 +68,9 @@ struct ContentView: View {
 /// Sets the native window title (no toolbar-control pill on the title).
 private struct WindowChrome: NSViewRepresentable {
     let title: String
+    /// Not drawn here: SwiftUI resets the window title to the scene's name whenever
+    /// `navigationSubtitle` changes, so a subtitle change has to reapply the title too.
+    let subtitle: String
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -87,7 +90,7 @@ private struct WindowChrome: NSViewRepresentable {
 
 /// Renames the working document, with a shuffle to pull a fresh name from the colors.
 private struct RenameGradientSheet: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -129,7 +132,9 @@ private struct RenameGradientSheet: View {
 }
 
 struct InspectorView: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
+    /// Bindings into the model for the inspector's sliders, toggles and pickers.
+    private var bindable: Bindable<StudioModel> { Bindable(model) }
 
     var body: some View {
         form
@@ -158,14 +163,14 @@ struct InspectorView: View {
                 InspectorCard {
                     cardHeader("Texture") {
                         ResetButton(help: "Reset texture") { model.resetTexture() }
-                        Toggle("Texture on", isOn: $model.recipe.textureEnabled)
+                        Toggle("Texture on", isOn: bindable.recipe.textureEnabled)
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .controlSize(.mini)
                     }
                     if model.recipe.textureEnabled {
-                        SliderControl(title: "Grain", value: $model.recipe.grain, range: 0...0.5, valueText: percent(model.recipe.grain))
-                        SliderControl(title: "Grain size", value: $model.recipe.grainSize, range: 0.5...3, valueText: String(format: "%.1f×", model.recipe.grainSize))
+                        SliderControl(title: "Grain", value: bindable.recipe.grain, range: 0...0.5, valueText: percent(model.recipe.grain))
+                        SliderControl(title: "Grain size", value: bindable.recipe.grainSize, range: 0.5...3, valueText: String(format: "%.1f×", model.recipe.grainSize))
                     }
                 }
             }
@@ -189,7 +194,7 @@ struct InspectorView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Flow")
                     .font(.caption)
-                Picker("Flow", selection: $model.recipe.organicFlow) {
+                Picker("Flow", selection: bindable.recipe.organicFlow) {
                     ForEach(OrganicFlow.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -197,10 +202,10 @@ struct InspectorView: View {
                 .help("Still melts the colors in place, Pull drags them like a brush, Wave ripples the borders, Classic is the original Organic")
             }
             if model.recipe.organicFlow != .still {
-                SliderControl(title: organicStrengthTitle, value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+                SliderControl(title: organicStrengthTitle, value: bindable.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
             }
-            SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
-            SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            SliderControl(title: "Softness", value: bindable.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            SliderControl(title: "Swirl", value: bindable.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
             if model.recipe.organicFlow != .still || model.recipe.swirl > 0 {
                 Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
                     .help("New directions for the flow and swirl, without moving your colors")
@@ -217,7 +222,7 @@ struct InspectorView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
-            SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            SliderControl(title: "Softness", value: bindable.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
             HStack(spacing: 8) {
                 Button { model.straightenMesh() } label: {
                     Text("Straighten").frame(maxWidth: .infinity)
@@ -234,39 +239,39 @@ struct InspectorView: View {
                 .foregroundStyle(.secondary)
         case .linear:
             AnglePresetGrid(current: model.linearAngle) { model.setLinearAngle($0) }
-            Picker("Blend", selection: $model.recipe.smoothBlend) {
+            Picker("Blend", selection: bindable.recipe.smoothBlend) {
                 Text("Crisp").tag(false)
                 Text("Smooth").tag(true)
             }
             .pickerStyle(.segmented)
             if !model.recipe.smoothBlend {
-                SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
+                SliderControl(title: "Ease", value: bindable.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
             }
         case .tonal:
-            SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
-            SliderControl(title: "Softness", value: $model.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
-            SliderControl(title: "Variation", value: $model.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
-            SliderControl(title: "Swirl", value: $model.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            SliderControl(title: "Flow", value: bindable.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            SliderControl(title: "Softness", value: bindable.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            SliderControl(title: "Variation", value: bindable.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
+            SliderControl(title: "Swirl", value: bindable.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
             Button("Shuffle Texture", systemImage: "shuffle") { model.shuffleMesh() }
                 .help("Vary the tonal shapes without changing the base color")
         case .radial:
-            SliderControl(title: "Center X", value: $model.recipe.centerX, range: -1...2, valueText: percent(model.recipe.centerX))
-            SliderControl(title: "Center Y", value: $model.recipe.centerY, range: -1...2, valueText: percent(model.recipe.centerY))
-            SliderControl(title: "Spread", value: $model.recipe.fadeWidth, range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
-            SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
+            SliderControl(title: "Center X", value: bindable.recipe.centerX, range: -1...2, valueText: percent(model.recipe.centerX))
+            SliderControl(title: "Center Y", value: bindable.recipe.centerY, range: -1...2, valueText: percent(model.recipe.centerY))
+            SliderControl(title: "Spread", value: bindable.recipe.fadeWidth, range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
+            SliderControl(title: "Ease", value: bindable.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
         case .aurora:
             AnglePresetGrid(current: model.recipe.angleDegrees) { model.recipe.angleDegrees = $0 }
             directionControls
-            SliderControl(title: "Flow", value: $model.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
-            SliderControl(title: "Fade width", value: $model.recipe.fadeWidth, range: 0.15...5, valueText: percent(model.recipe.fadeWidth))
-            SliderControl(title: "Ease", value: $model.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
-            SliderControl(title: "Color arc", value: $model.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
+            SliderControl(title: "Flow", value: bindable.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+            SliderControl(title: "Fade width", value: bindable.recipe.fadeWidth, range: 0.15...5, valueText: percent(model.recipe.fadeWidth))
+            SliderControl(title: "Ease", value: bindable.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
+            SliderControl(title: "Color arc", value: bindable.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
         }
     }
 
     @ViewBuilder private var directionControls: some View {
-        SliderControl(title: "Angle", value: $model.recipe.angleDegrees, range: 0...360, valueText: "\(Int(model.recipe.angleDegrees.rounded()))°")
-        SliderControl(title: "Position", value: $model.recipe.gradientPosition, range: 0...1, valueText: percent(model.recipe.gradientPosition))
+        SliderControl(title: "Angle", value: bindable.recipe.angleDegrees, range: 0...360, valueText: "\(Int(model.recipe.angleDegrees.rounded()))°")
+        SliderControl(title: "Position", value: bindable.recipe.gradientPosition, range: 0...1, valueText: percent(model.recipe.gradientPosition))
     }
 
     private var organicStrengthTitle: String {
@@ -288,7 +293,7 @@ struct InspectorView: View {
 
 /// Live previews of the current colors in every style.
 struct StylePicker: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     var body: some View {
@@ -350,7 +355,7 @@ private struct StyleTile: View {
 /// It reads the same preview image the canvas shows, so it tracks edits in realtime with no extra
 /// render and no update jump.
 struct AmbientBackdrop: View {
-    @EnvironmentObject private var model: StudioModel
+    @Environment(StudioModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
