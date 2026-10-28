@@ -114,8 +114,7 @@ struct GradientLibraryView: View {
                 }
             }
             .listStyle(.sidebar)
-            // Room between the tab picker and the first section header.
-            .contentMargins(.top, 8, for: .scrollContent)
+            .modifier(HeaderSpacing())
             // New, Duplicate and edits insert at the top of their section; scroll there so the new
             // row isn't tucked under the tab picker.
             .onChange(of: model.currentGradientID) { _, id in
@@ -181,6 +180,19 @@ struct GradientLibraryView: View {
         Button("Export Recipe…") { model.exportRecipe(id: gradient.id) }
         Divider()
         Button(gradient.isUnsaved ? "Discard" : "Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
+    }
+}
+
+/// Room between the tab picker and the first section header. On macOS 26 and later the picker's
+/// safe-area bar already leaves it; a content margin on top of that bar made the list jump a few
+/// points whenever the sidebar redrew (hovering the color tray, for one).
+private struct HeaderSpacing: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+        } else {
+            content.contentMargins(.top, 8, for: .scrollContent)
+        }
     }
 }
 
