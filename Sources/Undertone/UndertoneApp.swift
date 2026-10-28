@@ -84,6 +84,7 @@ struct UndertoneApp: App {
         Window("Undertone", id: "studio") {
             ContentView()
                 .environment(model)
+                .providesHostingWindow()
                 // ContentView sets the minimum width, which depends on whether the inspector is open.
                 .frame(minHeight: 660)
         }

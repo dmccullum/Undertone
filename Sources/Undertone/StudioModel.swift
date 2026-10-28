@@ -1,4 +1,5 @@
 import AppKit
+import DMKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -41,6 +42,8 @@ import UniformTypeIdentifiers
     // Everything below is bookkeeping no view draws from, so it's left out of observation. The
     // thumbnail cache is written while views draw, and observing it would redraw them in a loop.
     @ObservationIgnored weak var undoManager: UndoManager?
+    /// The studio window, which file panels attach to as sheets. ContentView sets it.
+    @ObservationIgnored weak var window: NSWindow?
     /// Recipe edits undo against this target, so opening another gradient can drop them without
     /// also dropping library undo (colors, collections, names), which doesn't depend on the canvas.
     private let recipeUndoTarget = RecipeUndoTarget()
@@ -746,7 +749,7 @@ import UniformTypeIdentifiers
     func importColorLibraryFromPanel() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
         Task {
-            guard await panel.present() == .OK, let url = panel.url else { return }
+            guard await panel.present(in: window) == .OK, let url = panel.url else { return }
             do { try importColorLibrary(data: Data(contentsOf: url)) }
             catch { fail("Couldn’t Import Collection", error) }
         }
@@ -757,7 +760,7 @@ import UniformTypeIdentifiers
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = Self.fileSafe(library.name) + ".undertone-colors.json"
         Task {
-            guard await panel.present() == .OK, let url = panel.url else { return }
+            guard await panel.present(in: window) == .OK, let url = panel.url else { return }
             do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); flash("Exported \(library.name)") }
             catch { fail("Couldn’t Export Collection", error) }
         }
@@ -1295,7 +1298,7 @@ import UniformTypeIdentifiers
         let accessory = ExportFormatAccessory(panel: panel, format: format)
         panel.accessoryView = accessory.view
         Task {
-            guard await panel.present() == .OK, let url = panel.url else { return }
+            guard await panel.present(in: window) == .OK, let url = panel.url else { return }
             let jpeg = accessory.format == .jpeg, quality = Self.jpegQuality
             renderExport(failureTitle: "Couldn’t Export Image") { image, _ in
                 try Self.encoded(image, jpeg: jpeg, quality: quality).write(to: url, options: .atomic)
@@ -1316,7 +1319,7 @@ import UniformTypeIdentifiers
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = Self.fileSafe(name) + ".undertone.json"
         Task {
-            guard await panel.present() == .OK, let url = panel.url else { return }
+            guard await panel.present(in: window) == .OK, let url = panel.url else { return }
             do {
                 let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 try encoder.encode(recipe).write(to: url, options: .atomic)
@@ -1328,7 +1331,7 @@ import UniformTypeIdentifiers
     func importRecipe() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
         Task {
-            guard await panel.present() == .OK, let url = panel.url else { return }
+            guard await panel.present(in: window) == .OK, let url = panel.url else { return }
             importRecipe(from: url)
         }
     }
@@ -1402,14 +1405,5 @@ private final class ExportFormatAccessory: NSObject {
         panel.allowedContentTypes = [format.contentType]
         let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
         panel.nameFieldStringValue = base + "." + format.fileExtension
-    }
-}
-
-extension NSSavePanel {
-    /// Shows the panel as a sheet on the studio window, or app-modal when no window is open.
-    func present() async -> NSApplication.ModalResponse {
-        let studio = NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.hasPrefix("studio") == true }
-        guard let window = studio ?? NSApp.mainWindow else { return runModal() }
-        return await beginSheetModal(for: window)
     }
 }

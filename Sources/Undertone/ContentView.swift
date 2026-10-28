@@ -1,9 +1,11 @@
 import AppKit
+import DMKit
 import SwiftUI
 
 struct ContentView: View {
     @Environment(StudioModel.self) private var model
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.hostingWindow) private var window
     @State private var renaming = false
     @State private var choosingCustomSize = false
     @AppStorage("showsInspector") private var showsInspector = true
@@ -50,6 +52,7 @@ struct ContentView: View {
         .focusedSceneValue(\.customSizeAction, CustomSizeAction { choosingCustomSize = true })
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
+        .onChange(of: window, initial: true) { _, window in model.window = window }
         .alert(model.errorTitle, isPresented: errorIsPresented) {
             Button("OK", role: .cancel) { model.errorMessage = nil }
         } message: {
