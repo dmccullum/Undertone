@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 nonisolated struct ColorStop: Codable, Identifiable, Equatable, Sendable {
     var id = UUID()
@@ -343,6 +344,25 @@ nonisolated enum CanvasPreset: String, CaseIterable, Identifiable {
     static func matching(width: Int, height: Int) -> CanvasPreset? {
         allCases.first { $0.size.width == width && $0.size.height == height }
     }
+}
+
+/// The image formats Export Image writes. Settings picks the one its save panel starts on.
+nonisolated enum ExportFormat: String, CaseIterable, Identifiable {
+    case png, jpeg
+
+    static let preference = "exportFormat"
+    static let jpegQualityPreference = "jpegQuality"
+    static let defaultJPEGQuality = 0.95
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .png: "PNG"
+        case .jpeg: "JPEG"
+        }
+    }
+    var contentType: UTType { self == .png ? .png : .jpeg }
+    var fileExtension: String { self == .png ? "png" : "jpg" }
 }
 
 nonisolated enum Hex {

@@ -1219,10 +1219,21 @@ import UniformTypeIdentifiers
         }
     }
 
-    nonisolated static func encoded(_ image: CGImage, jpeg: Bool = false) throws -> Data {
+    nonisolated static func encoded(_ image: CGImage, jpeg: Bool = false, quality: Double = ExportFormat.defaultJPEGQuality) throws -> Data {
         let bitmap = NSBitmapImageRep(cgImage: image)
-        guard let data = bitmap.representation(using: jpeg ? .jpeg : .png, properties: jpeg ? [.compressionFactor: 0.95] : [:]) else { throw CocoaError(.fileWriteUnknown) }
+        guard let data = bitmap.representation(using: jpeg ? .jpeg : .png, properties: jpeg ? [.compressionFactor: quality] : [:]) else { throw CocoaError(.fileWriteUnknown) }
         return data
+    }
+
+    /// Export Image's starting format, from Settings.
+    private static var exportFormat: ExportFormat {
+        UserDefaults.standard.string(forKey: ExportFormat.preference).flatMap(ExportFormat.init(rawValue:)) ?? .png
+    }
+
+    /// JPEG compression quality from Settings, 0.5 to 1.
+    private static var jpegQuality: Double {
+        let quality = UserDefaults.standard.object(forKey: ExportFormat.jpegQualityPreference) as? Double ?? ExportFormat.defaultJPEGQuality
+        return min(1, max(0.5, quality))
     }
 
     func copyImage() {
@@ -1270,14 +1281,18 @@ import UniformTypeIdentifiers
     }
 
     func exportImage() {
+        let format = Self.exportFormat
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg]
-        panel.nameFieldStringValue = exportFileName(extension: "png")
+        panel.allowedContentTypes = [format.contentType]
+        panel.nameFieldStringValue = exportFileName(extension: format.fileExtension)
         panel.canCreateDirectories = true
+        let accessory = ExportFormatAccessory(panel: panel, format: format)
+        panel.accessoryView = accessory.view
         Task {
             guard await panel.present() == .OK, let url = panel.url else { return }
+            let jpeg = accessory.format == .jpeg, quality = Self.jpegQuality
             renderExport { image, _ in
-                try Self.encoded(image, jpeg: ["jpg", "jpeg"].contains(url.pathExtension.lowercased())).write(to: url, options: .atomic)
+                try Self.encoded(image, jpeg: jpeg, quality: quality).write(to: url, options: .atomic)
                 self.flash("Saved \(url.lastPathComponent)")
             }
         }
@@ -1349,6 +1364,38 @@ import UniformTypeIdentifiers
               candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && Hex.normalized($0.hex) != nil })
         else { throw CocoaError(.fileReadCorruptFile) }
         return candidate
+    }
+}
+
+/// The Format pop-up in Export Image's save panel. Choosing a format changes the file type and the
+/// name's extension for this export; Settings keeps the default.
+private final class ExportFormatAccessory: NSObject {
+    private(set) var format: ExportFormat
+    let view: NSView
+    private weak var panel: NSSavePanel?
+    private let popUp = NSPopUpButton(frame: .zero, pullsDown: false)
+
+    init(panel: NSSavePanel, format: ExportFormat) {
+        self.panel = panel
+        self.format = format
+        let stack = NSStackView(views: [NSTextField(labelWithString: "Format:"), popUp])
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
+        view = stack
+        super.init()
+        popUp.addItems(withTitles: ExportFormat.allCases.map(\.title))
+        popUp.selectItem(at: ExportFormat.allCases.firstIndex(of: format) ?? 0)
+        popUp.target = self
+        popUp.action = #selector(formatChanged)
+        stack.frame.size = stack.fittingSize
+    }
+
+    @objc private func formatChanged() {
+        guard let panel, ExportFormat.allCases.indices.contains(popUp.indexOfSelectedItem) else { return }
+        format = ExportFormat.allCases[popUp.indexOfSelectedItem]
+        panel.allowedContentTypes = [format.contentType]
+        let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
+        panel.nameFieldStringValue = base + "." + format.fileExtension
     }
 }
 

@@ -55,6 +55,9 @@ struct UndertoneApp: App {
             InspectorCommands()
             StudioCommands(model: model)
         }
+        Settings {
+            SettingsView()
+        }
     }
 }
 
