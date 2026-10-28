@@ -93,6 +93,8 @@ private struct RenameGradientSheet: View {
     @Environment(StudioModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
+    /// The shuffle's last roll. Renaming to it keeps the name automatic, following the colors.
+    @State private var suggestion: (name: String, seed: Int)?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -104,8 +106,9 @@ private struct RenameGradientSheet: View {
                     .focused($focused)
                     .onSubmit(commit)
                 Button {
-                    model.shuffleAutomaticName()
-                    draft = model.currentName
+                    let rolled = model.automaticNameSuggestion()
+                    suggestion = rolled
+                    draft = rolled.name
                 } label: {
                     Image(systemName: "die.face.5")
                 }
@@ -126,7 +129,8 @@ private struct RenameGradientSheet: View {
     }
 
     private func commit() {
-        model.renameCurrentGradient(draft)
+        if let suggestion, suggestion.name == draft { model.useAutomaticName(seed: suggestion.seed) }
+        else { model.renameCurrentGradient(draft) }
         dismiss()
     }
 }

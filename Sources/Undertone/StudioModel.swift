@@ -425,13 +425,19 @@ import UniformTypeIdentifiers
     /// Lets the current gradient's name follow the colors again.
     func useAutomaticName() { renameCurrentGradient("") }
 
-    /// Rolls a different automatic name from the current colors — used by the rename sheet's shuffle.
-    func shuffleAutomaticName() {
+    /// Rolls an automatic name from the current colors for the rename sheet's shuffle. Changes nothing.
+    func automaticNameSuggestion() -> (name: String, seed: Int) {
+        let seed = Int.random(in: 0...9_999)
+        return (NameGenerator.name(for: recipe, seed: seed), seed)
+    }
+
+    /// Gives the current gradient the automatic name for `seed`; the name then follows the colors.
+    func useAutomaticName(seed: Int) {
         guard let index = currentIndex else { return }
         let previous = naming(at: index)
         gradients[index].hasCustomName = false
-        gradients[index].nameSeed = Int.random(in: 0...9_999)
-        gradients[index].name = NameGenerator.name(for: recipe, seed: gradients[index].nameSeed)
+        gradients[index].nameSeed = seed
+        gradients[index].name = NameGenerator.name(for: recipe, seed: seed)
         saveNow()
         registerRenameUndo(id: gradients[index].id, restoring: previous)
     }
