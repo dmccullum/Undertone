@@ -57,7 +57,7 @@ private struct AboutCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Undertone") {
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activate()
                 AboutWindowController.shared.show()
             }
         }
@@ -78,6 +78,15 @@ struct StudioCommands: Commands {
                 .keyboardShortcut("o")
         }
         CommandGroup(replacing: .saveItem) {
+            Button(model.currentSource == nil ? "Save Gradient" : "Save as New Gradient") { model.saveAsNewGradient() }
+                .keyboardShortcut("s")
+                .disabled(!model.isCurrentUnsaved)
+            Button(model.currentSource.map { "Update “\($0.name)”" } ?? "Update Saved Gradient") { model.updateSavedGradient() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(model.currentSource == nil)
+            Button("Revert to Saved") { model.revertToSaved() }
+                .disabled(model.currentSource == nil)
+            Divider()
             Button("Export Image…") { model.exportImage() }
                 .keyboardShortcut("e")
                 .disabled(model.isRendering)

@@ -29,7 +29,14 @@ The window has three parts: the library sidebar on the left, the canvas in the m
 
 Closing the window keeps Undertone running. Reopen it from the Dock or with ⌘0. Quit the app with ⌘Q.
 
-**Gradients.** Every composition lives in the Gradients library and saves itself as you work. A gradient keeps everything: colors, point positions, direction, center, every slider, the seed and the canvas size. Edits save into the open gradient; Duplicate a favorite first to keep the original, and undo covers mistakes. The right-click menu has Rename, Duplicate, Export Recipe and Delete, and Delete can be undone. New Gradient (⌘N) starts an empty gradient. ⌘S confirms a save but is never required.
+**Gradients.** The Gradients library has two sections, Unsaved and Saved. A gradient keeps everything: colors, point positions, direction, center, every slider, the seed and the canvas size. The first edit to a saved gradient opens an unsaved copy at the top of the library, and the saved gradient stays as it was. Unsaved gradients autosave and survive quitting. Then:
+
+- **Save as New Gradient (⌘S)** adds the copy to Saved, numbered if the name is taken (Dusk 2).
+- **Update “Dusk” (⌥⌘S)** writes the copy over the gradient it came from.
+- **Revert to Saved** drops the copy and reopens the original.
+- Or leave it unsaved. An unsaved copy you edit back to match its original is removed when you open another gradient.
+
+The same commands are in the File menu, the toolbar’s Save button and the row’s right-click menu, and all of them can be undone. The right-click menu also has Rename, Duplicate, Export Recipe and Delete (Discard for an unsaved gradient). New Gradient (⌘N) starts an empty unsaved gradient.
 
 **Colors.** The Colors tab holds collapsible collections of named colors. A collection can be a full brand library such as Coldwell Banker or a small palette. Every click on a swatch adds that color to the gradient, so a color can appear more than once; a badge shows how many times. Right-click a swatch to edit, rename or delete it. Each collection's menu adds colors, renames, exports and deletes it. New Collection at the bottom also imports a collection or turns the gradient's colors into one. Built-in collections are locked.
 

@@ -15,8 +15,9 @@ import UniformTypeIdentifiers
         didSet { recipeDidChange(from: oldValue) }
     }
     @Published private(set) var gradients: [SavedGradient] = []
-    /// The gradient currently open on the canvas. Everything in the library is always saved; edits
-    /// to `recipe` are written back to this gradient automatically.
+    /// The gradient currently open on the canvas. Edits to `recipe` autosave into it only while it's
+    /// an unsaved gradient; the first edit to a saved gradient opens an unsaved copy instead, so a
+    /// saved gradient changes only through Update.
     @Published private(set) var currentGradientID: UUID?
     @Published var colorLibraries: [ColorLibrary] = [.coldwellBanker]
     @Published private(set) var preview: NSImage?
@@ -91,6 +92,12 @@ import UniformTypeIdentifiers
     // MARK: - Gradient library
 
     var currentGradient: SavedGradient? { gradients.first { $0.id == currentGradientID } }
+    var isCurrentUnsaved: Bool { currentGradient?.isUnsaved ?? false }
+    /// The saved gradient the open unsaved one was edited from, while it still exists.
+    var currentSource: SavedGradient? {
+        guard let sourceID = currentGradient?.sourceID else { return nil }
+        return gradients.first { $0.id == sourceID && !$0.isUnsaved }
+    }
     var currentName: String { currentGradient?.name ?? "Untitled" }
     private var currentIndex: Int? { gradients.firstIndex { $0.id == currentGradientID } }
 
@@ -162,7 +169,8 @@ import UniformTypeIdentifiers
     }
 
     /// Writes the working recipe back into its library gradient. Called before switching, on idle
-    /// autosave, and on quit — the library is the single source of truth.
+    /// autosave, and on quit. Edits fork a saved gradient into an unsaved one first, so this only
+    /// ever writes into an unsaved gradient.
     private func commitRecipe() {
         guard let index = currentIndex, gradients[index].recipe != recipe else { return }
         gradients[index].recipe = recipe
@@ -177,11 +185,12 @@ import UniformTypeIdentifiers
         } catch { errorMessage = "Could not save your gradients: \(error.localizedDescription)" }
     }
 
-    /// Opens a gradient on the canvas. Everything is always saved, so this just commits the current
-    /// one first and switches.
+    /// Opens a gradient on the canvas, committing the current one first. An unsaved copy that was
+    /// edited back to match its source is dropped on the way out.
     func selectGradient(id: UUID?) {
         guard let id, id != currentGradientID, let gradient = gradients.first(where: { $0.id == id }) else { return }
         commitRecipe()
+        if let source = currentSource, source.recipe == recipe { gradients.removeAll { $0.id == currentGradientID } }
         currentGradientID = id
         UserDefaults.standard.set(id.uuidString, forKey: Self.currentGradientPreference)
         load(gradient.recipe, animated: true)
@@ -195,7 +204,7 @@ import UniformTypeIdentifiers
         isLoadingGradient = false
     }
 
-    /// Creates a new, empty gradient in the library and opens it.
+    /// Creates a new, empty unsaved gradient and opens it.
     @discardableResult func newGradient() -> UUID {
         commitRecipe()
         var fresh = GradientRecipe()
@@ -205,7 +214,7 @@ import UniformTypeIdentifiers
         fresh.height = size.height
         fresh.seed = UInt64.random(in: 1...UInt64.max)
         let seed = Int.random(in: 0...9_999)
-        let gradient = SavedGradient(name: NameGenerator.name(for: fresh, seed: seed), nameSeed: seed, recipe: fresh)
+        let gradient = SavedGradient(name: NameGenerator.name(for: fresh, seed: seed), nameSeed: seed, recipe: fresh, isUnsaved: true)
         gradients.insert(gradient, at: 0)
         currentGradientID = gradient.id
         UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
@@ -229,6 +238,93 @@ import UniformTypeIdentifiers
     @discardableResult func duplicateCurrentGradient() -> UUID? {
         guard let id = currentGradientID else { return nil }
         return duplicateGradient(id: id)
+    }
+
+    // MARK: - Unsaved gradients
+
+    /// The first edit to a saved gradient moves the work into a new unsaved copy and leaves the
+    /// saved one as it was.
+    private func forkUnsavedCopyIfNeeded() {
+        guard let index = currentIndex, !gradients[index].isUnsaved, gradients[index].recipe != recipe else { return }
+        let source = gradients[index]
+        let copy = SavedGradient(name: source.name, hasCustomName: source.hasCustomName, nameSeed: source.nameSeed, recipe: recipe, isUnsaved: true, sourceID: source.id)
+        gradients.insert(copy, at: 0)
+        currentGradientID = copy.id
+        UserDefaults.standard.set(copy.id.uuidString, forKey: Self.currentGradientPreference)
+    }
+
+    /// Saves the open unsaved gradient as a new saved gradient, leaving its source untouched.
+    func saveAsNewGradient() {
+        commitRecipe()
+        guard let index = currentIndex, gradients[index].isUnsaved else { return }
+        let before = librarySnapshot()
+        var saved = gradients.remove(at: index)
+        if saved.hasCustomName, gradients.contains(where: { !$0.isUnsaved && $0.name == saved.name }) {
+            saved.name = numberedName(for: saved.name)
+        }
+        saved.isUnsaved = false
+        saved.sourceID = nil
+        saved.modified = Date()
+        gradients.insert(saved, at: gradients.firstIndex { !$0.isUnsaved } ?? gradients.endIndex)
+        saveNow()
+        registerGradientsUndo("Save Gradient", restoring: before)
+        flash("Saved \(saved.name)")
+    }
+
+    /// Writes the open unsaved gradient over the saved gradient it came from and opens that one.
+    func updateSavedGradient() {
+        commitRecipe()
+        guard let index = currentIndex, let source = currentSource,
+              let sourceIndex = gradients.firstIndex(where: { $0.id == source.id }) else { return }
+        let before = librarySnapshot()
+        let edited = gradients[index]
+        gradients[sourceIndex].recipe = edited.recipe
+        gradients[sourceIndex].name = edited.name
+        gradients[sourceIndex].hasCustomName = edited.hasCustomName
+        gradients[sourceIndex].nameSeed = edited.nameSeed
+        gradients[sourceIndex].modified = Date()
+        gradients.remove(at: index)
+        currentGradientID = source.id
+        UserDefaults.standard.set(source.id.uuidString, forKey: Self.currentGradientPreference)
+        saveNow()
+        registerGradientsUndo("Update Gradient", restoring: before)
+        flash("Updated \(edited.name)")
+    }
+
+    /// Throws away the open unsaved gradient's edits and reopens the saved gradient it came from.
+    func revertToSaved() {
+        commitRecipe()
+        guard let index = currentIndex, let source = currentSource else { return }
+        let before = librarySnapshot()
+        gradients.remove(at: index)
+        currentGradientID = source.id
+        UserDefaults.standard.set(source.id.uuidString, forKey: Self.currentGradientPreference)
+        load(source.recipe, animated: true)
+        saveNow()
+        undoManager?.removeAllActions(withTarget: recipeUndoTarget)
+        registerGradientsUndo("Revert to Saved", restoring: before)
+    }
+
+    private struct LibrarySnapshot { var gradients: [SavedGradient]; var currentID: UUID? }
+
+    private func librarySnapshot() -> LibrarySnapshot { LibrarySnapshot(gradients: gradients, currentID: currentGradientID) }
+
+    /// Save, Update and Revert undo by restoring the whole gradient list and the open gradient.
+    private func registerGradientsUndo(_ actionName: String, restoring previous: LibrarySnapshot) {
+        guard let undoManager else { return }
+        undoManager.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated {
+                model.commitRecipe()
+                let current = model.librarySnapshot()
+                model.gradients = previous.gradients
+                model.currentGradientID = previous.currentID
+                UserDefaults.standard.set(previous.currentID?.uuidString, forKey: Self.currentGradientPreference)
+                if let gradient = model.currentGradient { model.load(gradient.recipe, animated: true) }
+                model.saveNow()
+                model.registerGradientsUndo(actionName, restoring: current)
+            }
+        }
+        undoManager.setActionName(actionName)
     }
 
     /// "Dusk" becomes "Dusk 2", and "Dusk 2" becomes "Dusk 3", skipping names already in use.
@@ -267,8 +363,8 @@ import UniformTypeIdentifiers
         undoManager?.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated { model.restoreDeletedGradient(removed, at: index) }
         }
-        undoManager?.setActionName("Delete Gradient")
-        flash("Deleted \(removed.name)")
+        undoManager?.setActionName(removed.isUnsaved ? "Discard Gradient" : "Delete Gradient")
+        flash(removed.isUnsaved ? "Discarded \(removed.name)" : "Deleted \(removed.name)")
     }
 
     private func restoreDeletedGradient(_ gradient: SavedGradient, at index: Int) {
@@ -363,6 +459,7 @@ import UniformTypeIdentifiers
     private func recipeDidChange(from old: GradientRecipe) {
         guard recipe != old else { return }
         if !isLoadingGradient {
+            forkUnsavedCopyIfNeeded()
             if !isApplyingUndo { registerUndo(returningTo: old) }
             if old.stops.map(\.hex) != recipe.stops.map(\.hex) || old.mode != recipe.mode {
                 refreshAutomaticName()

@@ -17,9 +17,25 @@ struct StudioCanvas: View {
                 .padding(.bottom, 20)
                 .padding(.horizontal, 24)
         }
-        // The title is the native window title (shows "— Edited" for unsaved work); the toolbar just
-        // carries the actions on the trailing side.
+        // The title is the native window title, with "Unsaved" as its subtitle for unsaved work; the
+        // toolbar carries the actions on the trailing side.
         .toolbar {
+            if model.isCurrentUnsaved {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        if let source = model.currentSource {
+                            Button("Update “\(source.name)”") { model.updateSavedGradient() }
+                            Button("Revert to Saved") { model.revertToSaved() }
+                        }
+                    } label: {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                    } primaryAction: {
+                        model.saveAsNewGradient()
+                    }
+                    .menuIndicator(model.currentSource == nil ? .hidden : .visible)
+                    .help(model.currentSource == nil ? "Save this gradient (⌘S)" : "Save as a new gradient (⌘S), or update the one it came from")
+                }
+            }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { model.randomize() } label: { Label("Randomize", systemImage: "shuffle") }
                     .help("Randomize the layout (⌘R)")
@@ -611,8 +627,20 @@ private extension View {
         font(.callout.weight(.medium))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
+            .floatingBackground(in: Capsule(), shadow: true)
+    }
+}
+
+extension View {
+    /// Controls that float over the canvas: Liquid Glass on macOS 26 and later, which brings its own
+    /// depth, and a material (optionally with a shadow) before that.
+    @ViewBuilder func floatingBackground(in shape: some Shape, shadow: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: shape)
+        } else {
+            background(.regularMaterial, in: shape)
+                .shadow(color: .black.opacity(shadow ? 0.15 : 0), radius: 8, y: 3)
+        }
     }
 }
 
@@ -682,7 +710,7 @@ private struct ColorTray: View {
         .coordinateSpace(name: "tray")
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
+        .floatingBackground(in: Capsule())
         .overlay { Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
@@ -752,7 +780,7 @@ private struct MeshTray: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .floatingBackground(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
@@ -813,7 +841,7 @@ private struct StopChip: View {
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.regularMaterial, in: Capsule())
+                        .floatingBackground(in: Capsule())
                         .fixedSize()
                         .offset(y: -24)
                 }

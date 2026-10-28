@@ -76,17 +76,20 @@ struct GradientLibraryView: View {
     var body: some View {
         ScrollViewReader { proxy in
             List(selection: selection) {
-                ForEach(model.gradients) { gradient in
-                    GradientRow(gradient: gradient, thumbnail: model.thumbnail(for: gradient))
-                        .tag(gradient.id)
-                        .contextMenu { menu(for: gradient) }
+                let unsaved = model.gradients.filter(\.isUnsaved)
+                if !unsaved.isEmpty {
+                    Section("Unsaved") { rows(unsaved) }
                 }
+                Section("Saved") { rows(model.gradients.filter { !$0.isUnsaved }) }
             }
             .listStyle(.sidebar)
-            // New and Duplicate insert at the top; scroll there so the new row isn't tucked under
-            // the tab picker.
+            // Room between the tab picker and the first section header.
+            .contentMargins(.top, 8, for: .scrollContent)
+            // New, Duplicate and edits insert at the top of their section; scroll there so the new
+            // row isn't tucked under the tab picker.
             .onChange(of: model.currentGradientID) { _, id in
-                guard let id, model.gradients.first?.id == id else { return }
+                guard let id, let gradient = model.currentGradient,
+                      model.gradients.first(where: { $0.isUnsaved == gradient.isUnsaved })?.id == id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .top) }
             }
         }
@@ -115,19 +118,47 @@ struct GradientLibraryView: View {
         }
     }
 
+    private func rows(_ gradients: [SavedGradient]) -> some View {
+        ForEach(gradients) { gradient in
+            GradientRow(gradient: gradient, thumbnail: model.thumbnail(for: gradient), sourceName: sourceName(of: gradient))
+                .tag(gradient.id)
+                .contextMenu { menu(for: gradient) }
+        }
+    }
+
+    private func sourceName(of gradient: SavedGradient) -> String? {
+        guard let sourceID = gradient.sourceID else { return nil }
+        return model.gradients.first { $0.id == sourceID && !$0.isUnsaved }?.name
+    }
+
     @ViewBuilder private func menu(for gradient: SavedGradient) -> some View {
+        if gradient.isUnsaved {
+            Button("Save as New Gradient") {
+                model.selectGradient(id: gradient.id)
+                model.saveAsNewGradient()
+            }
+            if let source = sourceName(of: gradient) {
+                Button("Update “\(source)”") {
+                    model.selectGradient(id: gradient.id)
+                    model.updateSavedGradient()
+                }
+            }
+            Divider()
+        }
         Button("Rename…") { renaming = gradient }
         Button("Duplicate") { model.duplicateGradient(id: gradient.id) }
         Divider()
         Button("Export Recipe…") { model.exportRecipe(id: gradient.id) }
         Divider()
-        Button("Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
+        Button(gradient.isUnsaved ? "Discard" : "Delete", role: .destructive) { model.deleteGradient(id: gradient.id) }
     }
 }
 
 private struct GradientRow: View {
     let gradient: SavedGradient
     let thumbnail: NSImage?
+    /// For an unsaved gradient, the saved gradient it was edited from.
+    let sourceName: String?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -148,7 +179,7 @@ private struct GradientRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(gradient.name)
                     .lineLimit(1)
-                Text("\(gradient.recipe.mode.title) · \(String(gradient.recipe.width)) × \(String(gradient.recipe.height))")
+                Text(sourceName.map { "Edited from \($0)" } ?? "\(gradient.recipe.mode.title) · \(String(gradient.recipe.width)) × \(String(gradient.recipe.height))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()

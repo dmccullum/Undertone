@@ -33,16 +33,69 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.recipe.stops.last?.hex, blue.hex)
     }
 
-    @MainActor func testEditsSaveIntoTheOpenGradient() throws {
+    @MainActor func testEditsToASavedGradientGoIntoAnUnsavedCopy() throws {
         let folder = temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = StudioModel(directory: folder)
         let original = try XCTUnwrap(model.currentGradient)
 
         model.recipe.softness = 0.2
+        model.recipe.flow = 0.7
         model.saveNow()
-        XCTAssertEqual(model.currentGradientID, original.id)
+        XCTAssertNotEqual(model.currentGradientID, original.id)
+        XCTAssertEqual(model.gradients.filter(\.isUnsaved).count, 1, "One copy per editing run, not per change")
+        XCTAssertTrue(model.isCurrentUnsaved)
+        XCTAssertEqual(model.currentSource?.id, original.id)
         XCTAssertEqual(model.currentGradient?.recipe.softness, 0.2)
+        XCTAssertEqual(model.gradients.first { $0.id == original.id }?.recipe, original.recipe, "The saved gradient is untouched")
+
+        let reloaded = StudioModel(directory: folder)
+        XCTAssertEqual(reloaded.currentGradientID, model.currentGradientID, "Unsaved work survives relaunch")
+        XCTAssertEqual(reloaded.recipe.softness, 0.2)
+    }
+
+    @MainActor func testSaveAsNewKeepsTheSourceAndUpdateOverwritesIt() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let dusk = try XCTUnwrap(model.currentGradient)
+
+        step(undoManager) { model.recipe.softness = 0.2 }
+        step(undoManager) { model.saveAsNewGradient() }
+        let copy = try XCTUnwrap(model.currentGradient)
+        XCTAssertFalse(copy.isUnsaved)
+        XCTAssertEqual(copy.name, "Dusk 2")
+        XCTAssertEqual(model.gradients.first { $0.id == dusk.id }?.recipe, dusk.recipe)
+
+        model.selectGradient(id: dusk.id)
+        step(undoManager) { model.recipe.softness = 0.4 }
+        step(undoManager) { model.updateSavedGradient() }
+        XCTAssertEqual(model.currentGradientID, dusk.id)
+        XCTAssertEqual(model.currentGradient?.recipe.softness, 0.4)
+        XCTAssertFalse(model.gradients.contains(where: \.isUnsaved))
+
+        undoManager.undo()
+        XCTAssertTrue(model.isCurrentUnsaved, "Undo brings the unsaved copy back")
+        XCTAssertEqual(model.gradients.first { $0.id == dusk.id }?.recipe, dusk.recipe)
+    }
+
+    @MainActor func testRevertAndUntouchedCopiesLeaveNoUnsavedGradient() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = StudioModel(directory: folder)
+        let dusk = try XCTUnwrap(model.currentGradient)
+        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
+
+        model.recipe.softness = 0.2
+        model.revertToSaved()
+        XCTAssertEqual(model.currentGradientID, dusk.id)
+        XCTAssertEqual(model.recipe, dusk.recipe)
+
+        let original = model.recipe.softness
+        model.recipe.softness = 0.3
+        model.recipe.softness = original
+        model.selectGradient(id: tidal.id)
+        XCTAssertFalse(model.gradients.contains(where: \.isUnsaved), "A copy edited back to its source is dropped")
     }
 
     @MainActor func testReorderAndDuplicateColors() throws {

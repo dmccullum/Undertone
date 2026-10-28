@@ -28,9 +28,10 @@ struct ContentView: View {
         // content can sit in its safe area (no title-bar overlap, no dynamic insets) while the top
         // band still shows the gradient instead of an empty bar.
         .background { AmbientBackdrop() }
-        // Drive the native window title (left-aligned, no toolbar-control pill). Everything is always
-        // saved in the live-library model, so there's no "— Edited" state.
+        // Drive the native window title (left-aligned, no toolbar-control pill). Unsaved work always
+        // autosaves into its own unsaved gradient, so the subtitle marks it instead of "— Edited".
         .background(WindowChrome(title: model.currentName.isEmpty ? "Untitled" : model.currentName))
+        .navigationSubtitle(subtitle)
         .sheet(isPresented: $renaming) {
             RenameGradientSheet().environmentObject(model)
         }
@@ -44,6 +45,11 @@ struct ContentView: View {
         }
     }
 
+    private var subtitle: String {
+        guard model.isCurrentUnsaved else { return "" }
+        return model.currentSource.map { "Unsaved · edited from \($0.name)" } ?? "Unsaved"
+    }
+
     private var errorIsPresented: Binding<Bool> {
         Binding(
             get: { model.errorMessage != nil },
@@ -52,8 +58,7 @@ struct ContentView: View {
     }
 }
 
-/// Sets the native window title and the "— Edited" indicator, so the document status shows the
-/// native way (no toolbar-control pill on the title).
+/// Sets the native window title (no toolbar-control pill on the title).
 private struct WindowChrome: NSViewRepresentable {
     let title: String
 

@@ -246,6 +246,25 @@ struct SavedGradient: Codable, Identifiable, Equatable {
     var nameSeed = 0
     var recipe: GradientRecipe
     var modified = Date()
+    /// An unsaved gradient: a scratch copy that edits go into instead of overwriting a saved one.
+    /// It stays in the library until it's saved, used to update its source, or discarded.
+    var isUnsaved = false
+    /// The saved gradient an unsaved one was edited from, which Update writes back to.
+    var sourceID: UUID?
+}
+
+extension SavedGradient {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        hasCustomName = try values.decodeIfPresent(Bool.self, forKey: .hasCustomName) ?? false
+        nameSeed = try values.decodeIfPresent(Int.self, forKey: .nameSeed) ?? 0
+        recipe = try values.decode(GradientRecipe.self, forKey: .recipe)
+        modified = try values.decodeIfPresent(Date.self, forKey: .modified) ?? Date()
+        isUnsaved = try values.decodeIfPresent(Bool.self, forKey: .isUnsaved) ?? false
+        sourceID = try values.decodeIfPresent(UUID.self, forKey: .sourceID)
+    }
 }
 
 /// Legacy "gradient preset" format, which stored only colors. Read once for migration.
