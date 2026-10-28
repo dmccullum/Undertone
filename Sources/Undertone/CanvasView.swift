@@ -843,6 +843,7 @@ private struct StopChip: View {
                     .environment(model)
             }
             .contextMenu {
+                Button("Edit Color…") { editing = true }
                 Button("Duplicate") { model.duplicateColor(id: stop.id) }
                     .disabled(!model.canAddStop || model.recipe.mode == .tonal)
                 Button("Copy Hex") {

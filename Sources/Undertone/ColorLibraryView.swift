@@ -175,14 +175,20 @@ struct GradientLibraryView: View {
 
     @ViewBuilder private func menu(for gradient: SavedGradient) -> some View {
         if gradient.isUnsaved {
-            Button("Save as New Gradient") {
+            let source = sourceName(of: gradient)
+            // Same titles as File › Save Gradient / Save as New Gradient.
+            Button(source == nil ? "Save Gradient" : "Save as New Gradient") {
                 model.selectGradient(id: gradient.id)
                 model.saveAsNewGradient()
             }
-            if let source = sourceName(of: gradient) {
+            if let source {
                 Button("Update “\(source)”") {
                     model.selectGradient(id: gradient.id)
                     model.updateSavedGradient()
+                }
+                Button("Revert to Saved") {
+                    model.selectGradient(id: gradient.id)
+                    model.revertToSaved()
                 }
             }
             Divider()
@@ -300,13 +306,13 @@ struct ColorLibraryView: View {
         .safeAreaBar(edge: .bottom, spacing: 0) {
             HStack {
                 Menu {
-                    Button("New Collection…", systemImage: "folder.badge.plus") { showSheet(.newCollection) }
-                    Button("New Collection from Gradient Colors", systemImage: "square.stack") {
+                    Button("New Collection…") { showSheet(.newCollection) }
+                    Button("New Collection from Gradient Colors") {
                         model.createColorLibraryFromCurrentColors()
                     }
                     .disabled(model.recipe.stops.isEmpty)
                     Divider()
-                    Button("Import Collection…", systemImage: "square.and.arrow.down") {
+                    Button("Import Collection…") {
                         model.importColorLibraryFromPanel()
                     }
                 } label: {
@@ -408,13 +414,10 @@ private struct CollectionSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu { collectionMenu }
 
             Menu {
-                Button("Add Color…", systemImage: "plus") { showSheet(.addColor(libraryID: library.id)) }
-                Button("Rename…", systemImage: "pencil") { showSheet(.renameCollection(library)) }
-                Button("Export…", systemImage: "square.and.arrow.up") { model.exportColorLibrary(id: library.id) }
-                Divider()
-                Button("Delete…", systemImage: "trash", role: .destructive) { requestDelete(library) }
+                collectionMenu
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(.secondary)
@@ -427,6 +430,15 @@ private struct CollectionSection: View {
         .padding(.vertical, 6)
     }
 
+    /// The header's ⋯ menu, repeated as its right-click menu.
+    @ViewBuilder private var collectionMenu: some View {
+        Button("Add Color…") { showSheet(.addColor(libraryID: library.id)) }
+        Button("Rename…") { showSheet(.renameCollection(library)) }
+        Button("Export…") { model.exportColorLibrary(id: library.id) }
+        Divider()
+        Button("Delete…", role: .destructive) { requestDelete(library) }
+    }
+
     private func swatch(_ color: LibraryColor) -> some View {
         let count = model.count(of: color.hex)
         let canAdd = model.canUseLibraryColor
@@ -436,12 +448,13 @@ private struct CollectionSection: View {
         .contextMenu {
             Button(model.recipe.mode == .mesh ? "Paint Selected Point" : "Add to Gradient") { model.addLibraryColor(color) }
                 .disabled(!canAdd)
+            Divider()
+            Button("Edit…") { showSheet(.editColor(libraryID: library.id, color: color)) }
             Button("Copy Hex") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString("#" + color.hex, forType: .string)
             }
             Divider()
-            Button("Edit…") { showSheet(.editColor(libraryID: library.id, color: color)) }
             Button("Delete", role: .destructive) { model.deleteLibraryColor(color.id, from: library.id) }
         }
     }

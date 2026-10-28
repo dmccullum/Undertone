@@ -61,4 +61,35 @@ final class DragSourceView: NSView, NSDraggingSource {
     @objc func copy(_ sender: Any?) {
         model?.copyImage()
     }
+
+    /// The canvas's right-click menu, built here because this view receives the canvas's mouse events.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let model else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let copy = item("Copy Image") { model.copyImage() }
+        let export = item("Export Image…") { model.exportImage() }
+        copy.isEnabled = !model.isRendering
+        export.isEnabled = !model.isRendering
+        let style = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
+        style.submenu = NSMenu()
+        style.submenu?.items = GradientMode.allCases.map { mode in
+            let choice = item(mode.title) { model.setMode(mode) }
+            choice.state = model.recipe.mode == mode ? .on : .off
+            return choice
+        }
+        menu.items = [copy, export, .separator(), item("Randomize") { model.randomize() }, style]
+        return menu
+    }
+
+    private func item(_ title: String, _ handler: @escaping () -> Void) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(runMenuItem(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = handler
+        return item
+    }
+
+    @objc private func runMenuItem(_ sender: NSMenuItem) {
+        (sender.representedObject as? () -> Void)?()
+    }
 }
