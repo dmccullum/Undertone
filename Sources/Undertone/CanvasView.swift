@@ -593,23 +593,6 @@ private struct CenterHandle: View {
     }
 }
 
-/// Liquid Glass for the controls floating over the canvas, or an opaque fill with a separator edge
-/// when Reduce Transparency is on.
-private struct FloatingSurface<S: InsettableShape>: ViewModifier {
-    let shape: S
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    func body(content: Content) -> some View {
-        if reduceTransparency {
-            content
-                .background(Color(nsColor: .windowBackgroundColor), in: shape)
-                .overlay { shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1) }
-        } else {
-            content.glassEffect(.regular, in: shape)
-        }
-    }
-}
-
 // MARK: - Color tray
 
 private struct ColorTray: View {
@@ -636,8 +619,10 @@ private struct ColorTray: View {
         }
     }
 
+    /// DMKit's FloatingBar: glass with no stroke or shadow, an opaque capsule under Reduce
+    /// Transparency. Its 10-point spacing is part of `slot`.
     private var chips: some View {
-        HStack(spacing: 10) {
+        FloatingBar(spacing: 10) {
             if model.recipe.stops.isEmpty {
                 Text(model.recipe.mode == .tonal ? "Pick a base color" : "Add colors from your collections")
                     .font(.callout)
@@ -654,7 +639,7 @@ private struct ColorTray: View {
                         if isDragging { transaction.animation = nil }
                     }
                     .gesture(reorderGesture(for: stop))
-                    .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
+                    .transition(DMMotion.transition(.scale.combined(with: .opacity), reduceMotion: reduceMotion))
             }
             // At eight colors the button stays, disabled, and its help says why. Tonal takes one
             // base color, so its button simply leaves once that's set.
@@ -664,25 +649,15 @@ private struct ColorTray: View {
             }
             if !model.recipe.stops.isEmpty {
                 Divider().frame(height: 22)
-                Button {
-                    model.removeAllColors()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Remove all colors")
-                .accessibilityLabel("Remove all colors")
+                Button("Remove All Colors", systemImage: "xmark") { model.removeAllColors() }
+                    .buttonStyle(.floatingBar)
+                    .foregroundStyle(.secondary)
+                    .help("Remove All Colors")
             }
         }
         .coordinateSpace(name: "tray")
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .modifier(FloatingSurface(shape: Capsule()))
-        // With Reduce Motion, neighbors jump to their new places instead of sliding.
-        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
+        // Neighbors slide aside as a chip passes; under Reduce Motion, a short ease with no overshoot.
+        .dmAnimation(.spring, value: model.recipe.stops.map(\.id))
         // Hovering anywhere over the tray reveals all the canvas points.
         .onHover { model.setTrayHovering($0) }
     }
@@ -711,7 +686,7 @@ private struct ColorTray: View {
             }
             .onEnded { value in
                 let remove = abs(value.translation.height) > removeDistance
-                withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.75)) {
+                withDMAnimation(.spring) {
                     dragID = nil
                     dragTranslation = .zero
                     if remove { model.removeColor(id: stop.id) }
@@ -749,7 +724,8 @@ private struct MeshTray: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .modifier(FloatingSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)))
+        // Not a FloatingBar: the grid is several rows tall, and a capsule's ends would swallow it.
+        .floatingGlass(in: RoundedRectangle(cornerRadius: DMRadius.large, style: .continuous))
     }
 
     private func cellView(_ index: Int, diameter: CGFloat) -> some View {
