@@ -1,4 +1,5 @@
 import AppKit
+import DMKit
 import SwiftUI
 
 enum SidebarTab: String {
@@ -27,7 +28,10 @@ struct SidebarView: View {
             colorSheet = sheet
         })
         .safeAreaBar(edge: .top, spacing: 0) {
-            LibraryTabPicker(tab: $tab)
+            // DMKit's FilledSegments: SwiftUI's segmented Picker keeps its fitting width on macOS 26.
+            FilledSegments("Library", selection: $tab, segments: [
+                .init(value: .gradients, title: "Gradients"), .init(value: .colors, title: "Colors")
+            ])
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
                 .padding(.bottom, 8)
@@ -65,38 +69,6 @@ struct ColorSheetAction {
 
 extension FocusedValues {
     @Entry var colorSheetAction: ColorSheetAction?
-}
-
-/// The sidebar's Gradients and Colors tabs: an AppKit segmented control whose two segments share
-/// the sidebar's width. SwiftUI's segmented Picker keeps its fitting width on macOS 26 (it measured
-/// 158 of 236 points in a 260-point sidebar), and the macOS 27 tabs style isn't verified to fill.
-private struct LibraryTabPicker: NSViewRepresentable {
-    @Binding var tab: SidebarTab
-    private static let tabs: [(tab: SidebarTab, title: String)] = [(.gradients, "Gradients"), (.colors, "Colors")]
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(labels: Self.tabs.map(\.title), trackingMode: .selectOne,
-                                         target: context.coordinator, action: #selector(Coordinator.changed(_:)))
-        control.segmentDistribution = .fillEqually
-        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        control.setAccessibilityLabel("Library")
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.select = { index in
-            if Self.tabs.indices.contains(index) { tab = Self.tabs[index].tab }
-        }
-        control.selectedSegment = Self.tabs.firstIndex { $0.tab == tab } ?? -1
-    }
-
-    final class Coordinator: NSObject {
-        var select: (Int) -> Void = { _ in }
-        @objc func changed(_ control: NSSegmentedControl) { select(control.selectedSegment) }
-    }
 }
 
 // MARK: - Gradients
