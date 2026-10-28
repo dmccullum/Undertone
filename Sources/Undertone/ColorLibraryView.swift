@@ -67,23 +67,35 @@ extension FocusedValues {
     @Entry var colorSheetAction: ColorSheetAction?
 }
 
-/// The sidebar's Gradients and Colors tabs: the system's tab-style picker on macOS 27 and later,
-/// a segmented one on macOS 26.
-private struct LibraryTabPicker: View {
+/// The sidebar's Gradients and Colors tabs: an AppKit segmented control whose two segments share
+/// the sidebar's width. SwiftUI's segmented Picker keeps its fitting width on macOS 26 (it measured
+/// 158 of 236 points in a 260-point sidebar), and the macOS 27 tabs style isn't verified to fill.
+private struct LibraryTabPicker: NSViewRepresentable {
     @Binding var tab: SidebarTab
+    private static let tabs: [(tab: SidebarTab, title: String)] = [(.gradients, "Gradients"), (.colors, "Colors")]
 
-    var body: some View {
-        let picker = Picker("Library", selection: $tab) {
-            Text("Gradients").tag(SidebarTab.gradients)
-            Text("Colors").tag(SidebarTab.colors)
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(labels: Self.tabs.map(\.title), trackingMode: .selectOne,
+                                         target: context.coordinator, action: #selector(Coordinator.changed(_:)))
+        control.segmentDistribution = .fillEqually
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        control.setAccessibilityLabel("Library")
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.select = { index in
+            if Self.tabs.indices.contains(index) { tab = Self.tabs[index].tab }
         }
-        .labelsHidden()
-        .frame(maxWidth: .infinity)
-        if #available(macOS 27.0, *) {
-            picker.pickerStyle(.tabs)
-        } else {
-            picker.pickerStyle(.segmented)
-        }
+        control.selectedSegment = Self.tabs.firstIndex { $0.tab == tab } ?? -1
+    }
+
+    final class Coordinator: NSObject {
+        var select: (Int) -> Void = { _ in }
+        @objc func changed(_ control: NSSegmentedControl) { select(control.selectedSegment) }
     }
 }
 
