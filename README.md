@@ -33,7 +33,7 @@
 
 ## Install
 
-No prebuilt release is published yet. Build from source with Xcode command-line tools:
+No prebuilt release is published yet. Build from source with Xcode command-line tools. Undertone builds against DMKit, the package its About window, Help menu, status capsule and inspector controls come from, which must sit next to this folder as `../DMKit`. DMKit isn't published yet.
 
 ```sh
 git clone https://github.com/dmccullum/Undertone.git
@@ -53,7 +53,7 @@ swift run -c release   # run from the command line
 swift test             # renderer, export, library and naming tests
 ```
 
-Use the release configuration for `swift run`: the CPU renderer is much slower in debug builds. You can also open `Package.swift` in Xcode. Undertone has no package dependencies.
+Use the release configuration for `swift run`: the CPU renderer is much slower in debug builds. You can also open `Package.swift` in Xcode. The one package dependency is DMKit, at `../DMKit`.
 
 ## Keyboard shortcuts
 
