@@ -106,10 +106,12 @@ struct StudioCommands: Commands {
                 .keyboardShortcut("r")
             Button("Rename…") { model.beginRenaming() }
             Button("Use Automatic Name") { model.useAutomaticName() }
+                .disabled(model.currentGradient?.hasCustomName != true)
             Divider()
             Menu("Style") {
                 ForEach(Array(GradientMode.allCases.enumerated()), id: \.element) { index, mode in
-                    Button(mode.title) { model.setMode(mode) }
+                    // Toggles, so the current style shows a checkmark.
+                    Toggle(mode.title, isOn: Binding(get: { model.recipe.mode == mode }, set: { if $0 { model.setMode(mode) } }))
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
             }
