@@ -4,7 +4,7 @@ Last run: 2026-10-28, macOS 26.7.1 on Apple silicon, Swift 6.4, macOS 27 SDK.
 
 ## Automated
 
-`swift test -c release` runs 65 tests: 61 pass and 4 skip, with 0 failures. The skipped tests are opt-in:
+`swift test` runs 68 tests: 64 pass and 4 skip, with 0 failures. The skipped tests are opt-in:
 
 | Environment variable | Test it enables |
 | --- | --- |
@@ -19,6 +19,7 @@ The suites cover:
 - **Export.** PNG and JPEG encode at the requested dimensions, and a recipe round-trips with every setting intact. Recipes saved before the style field existed open as Organic, and Magic Linear files open as Linear.
 - **Library.** Gradient and collection persistence, automatic names that follow the colors until renamed, collection import and export as independent copies, and migration of older palette files.
 - **Naming.** The deterministic word picker.
+- **Migration.** Copying settings from the old `studio.undertone.mac` preferences once, without system keys.
 
 Grain uses a 32-bit hash sampled on integer cell coordinates, so both renderers compute identical noise. Output is dithered by ±1/255 per channel, independent of the seed, to avoid banding in smooth ramps.
 
@@ -38,6 +39,8 @@ These need a person at the app and are not covered by tests:
 - File panels (Export Image, Export and Import Recipe, Export and Import Collection) open as sheets on the window.
 - Menus: View › Show Inspector is ⌥⌘I; Gradient › Canvas Size, Texture, Shuffle Flow, Reset Style, Reset Texture and Remove All Colors; the Colors menu opens its sheets from either sidebar tab.
 - Right-click menus on the canvas, a collection header, a swatch, a tray chip and an unsaved gradient row.
+- Bundle identifier migration: launch a build with the old `studio.undertone.mac` identifier, change the open gradient, sidebar tab, inspector and export settings, quit, then launch this build. Those settings and the library carry over, and `defaults read com.danielmccullum.Undertone migratedFromBundleID` prints the old identifier.
+- The rose accent (light #C24D7D, dark #E66C9D) on selected tiles, swatches and the Settings controls, with Appearance › Accent color set to Multicolor.
 - Reduce Motion, Reduce Transparency and Increase Contrast (System Settings › Accessibility › Display), and a yellow accent color for the swatch badge and the selected angle button.
 
 ## Distribution
