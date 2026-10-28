@@ -379,7 +379,7 @@ final class LibraryTests: XCTestCase {
         let folder = temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let (model, undoManager) = undoableModel(in: folder)
-        model.newGradient()
+        step(undoManager) { model.newGradient() }
         let automatic = model.currentName
 
         step(undoManager) { model.renameCurrentGradient("Listing Hero") }
@@ -394,6 +394,38 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.currentGradient?.hasCustomName, false, "The name follows the colors again")
         undoManager.redo()
         XCTAssertEqual(model.currentName, "Listing Hero")
+    }
+
+    @MainActor func testGradientDeleteRedoesAndNewAndDuplicateUndo() throws {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let tidal = try XCTUnwrap(model.gradients.first { $0.name == "Tidal" })
+
+        step(undoManager) { model.deleteGradient(id: tidal.id) }
+        undoManager.undo()
+        XCTAssertTrue(model.gradients.contains { $0.id == tidal.id })
+        XCTAssertEqual(undoManager.redoActionName, "Delete Gradient")
+        undoManager.redo()
+        XCTAssertFalse(model.gradients.contains { $0.id == tidal.id }, "Redo deletes it again")
+        undoManager.undo()
+        XCTAssertTrue(model.gradients.contains { $0.id == tidal.id })
+
+        let count = model.gradients.count
+        let openID = model.currentGradientID
+        var newID: UUID?
+        step(undoManager) { newID = model.newGradient() }
+        XCTAssertEqual(undoManager.undoActionName, "New Gradient")
+        undoManager.undo()
+        XCTAssertEqual(model.gradients.count, count)
+        XCTAssertEqual(model.currentGradientID, openID)
+        undoManager.redo()
+        XCTAssertEqual(model.currentGradientID, newID)
+
+        step(undoManager) { model.duplicateGradient(id: tidal.id) }
+        XCTAssertEqual(undoManager.undoActionName, "Duplicate Gradient")
+        undoManager.undo()
+        XCTAssertFalse(model.gradients.contains { $0.name == "Tidal 2" })
     }
 
     @MainActor func testOpeningAnotherGradientKeepsLibraryUndo() throws {

@@ -209,6 +209,7 @@ import UniformTypeIdentifiers
     /// Creates a new, empty unsaved gradient and opens it.
     @discardableResult func newGradient() -> UUID {
         commitRecipe()
+        let before = librarySnapshot()
         var fresh = GradientRecipe()
         fresh.stops = []
         let size = Self.defaultCanvasSize
@@ -223,16 +224,19 @@ import UniformTypeIdentifiers
         load(fresh, animated: true)
         saveNow()
         undoManager?.removeAllActions(withTarget: recipeUndoTarget)
+        registerGradientsUndo("New Gradient", restoring: before)
         return gradient.id
     }
 
     @discardableResult func duplicateGradient(id: UUID) -> UUID? {
         commitRecipe()
         guard let original = gradients.first(where: { $0.id == id }) else { return nil }
+        let before = librarySnapshot()
         let copy = SavedGradient(name: numberedName(for: original.name), hasCustomName: true, nameSeed: original.nameSeed &+ 1, recipe: original.recipe)
         gradients.insert(copy, at: 0)
         saveNow()
         selectGradient(id: copy.id)
+        registerGradientsUndo("Duplicate Gradient", restoring: before)
         flash("Duplicated \(original.name)")
         return copy.id
     }
@@ -311,7 +315,7 @@ import UniformTypeIdentifiers
 
     private func librarySnapshot() -> LibrarySnapshot { LibrarySnapshot(gradients: gradients, currentID: currentGradientID) }
 
-    /// Save, Update and Revert undo by restoring the whole gradient list and the open gradient.
+    /// New, Duplicate, Import, Save, Update and Revert undo by restoring the whole gradient list and the open gradient.
     private func registerGradientsUndo(_ actionName: String, restoring previous: LibrarySnapshot) {
         guard let undoManager else { return }
         undoManager.registerUndo(withTarget: self) { model in
@@ -389,6 +393,11 @@ import UniformTypeIdentifiers
         UserDefaults.standard.set(gradient.id.uuidString, forKey: Self.currentGradientPreference)
         load(gradient.recipe, animated: true)
         saveNow()
+        // Redo deletes it again, which registers the next undo.
+        undoManager?.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { model.deleteGradient(id: gradient.id) }
+        }
+        undoManager?.setActionName(gradient.isUnsaved ? "Discard Gradient" : "Delete Gradient")
     }
 
     /// Renames a gradient (the current one by default). An empty name hands naming back to the generator.
@@ -1293,6 +1302,7 @@ import UniformTypeIdentifiers
             var name = url.lastPathComponent
             for suffix in [".json", ".undertone"] where name.lowercased().hasSuffix(suffix) { name = String(name.dropLast(suffix.count)) }
             commitRecipe()
+            let before = librarySnapshot()
             let seed = Int.random(in: 0...9_999)
             let gradient = SavedGradient(name: name.isEmpty ? NameGenerator.name(for: recipe, seed: seed) : name, hasCustomName: !name.isEmpty, nameSeed: seed, recipe: recipe)
             gradients.insert(gradient, at: 0)
@@ -1301,6 +1311,7 @@ import UniformTypeIdentifiers
             load(recipe, animated: true)
             saveNow()
             undoManager?.removeAllActions(withTarget: recipeUndoTarget)
+            registerGradientsUndo("Import Recipe", restoring: before)
         } catch { errorMessage = "Could not open that recipe: \(error.localizedDescription)" }
     }
 
