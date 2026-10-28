@@ -93,7 +93,6 @@ struct UndertoneApp: App {
         .windowToolbarStyle(.unified)
         .keyboardShortcut("0", modifiers: .command)
         .commands {
-            AboutCommands()
             FamilyHelpCommands(
                 help: URL(string: "https://github.com/dmccullum/Undertone/blob/main/docs/USAGE.md")!,
                 keyboardShortcuts: .url(URL(string: "https://github.com/dmccullum/Undertone#keyboard-shortcuts")!),
@@ -106,19 +105,12 @@ struct UndertoneApp: App {
         Settings {
             SettingsView()
         }
-    }
-}
-
-private struct AboutCommands: Commands {
-    var body: some Commands {
-        CommandGroup(replacing: .appInfo) {
-            Button("About Undertone") {
-                NSApp.activate()
-                AboutWindowController.shared.show()
-            }
+        AboutScene(links: AboutLinks(sourceCode: URL(string: "https://github.com/dmccullum/Undertone"))) {
+            StudioSignature()
         }
     }
 }
+
 
 
 /// Opens the Custom Size sheet from Gradient › Canvas Size.
