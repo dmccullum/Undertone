@@ -144,96 +144,80 @@ private struct RenameGradientSheet: View {
 
 struct InspectorView: View {
     @Environment(StudioModel.self) private var model
-    /// Bindings into the model for the inspector's sliders, toggles and pickers.
+    /// Bindings into the model for the inspector's toggles and pickers.
     private var bindable: Bindable<StudioModel> { Bindable(model) }
+    private static let defaults = GradientRecipe()
+    private static let grainSizeFormat = SliderValueFormat(
+        fractionDigits: 1, unit: .init(symbol: "×", spokenName: "times", spellings: ["×", "x"], isSpaced: false), step: 0.1
+    )
 
+    // Cards instead of a grouped Form: a Form reserves a leading label column for sliders, which
+    // pushes them off to the right. Cards keep the sliders full width.
     var body: some View {
-        form
-    }
-
-    // Custom cards instead of a grouped Form: a Form reserves a leading label column for Sliders,
-    // which pushes them off to the right. Cards keep the sliders full width.
-    private var form: some View {
         ScrollView {
-            VStack(spacing: 14) {
-                InspectorCard {
-                    cardHeader("Canvas") {
-                        CanvasSizeMenu()
-                    }
+            VStack(spacing: DMLayout.inspectorSpacing) {
+                InspectorCard("Canvas") {
+                    CanvasSizeMenu()
                 }
-                InspectorCard {
-                    cardHeader("Style") { EmptyView() }
+                InspectorCard("Style") {
+                    EmptyView()
+                } content: {
                     StylePicker()
                 }
-                InspectorCard {
-                    cardHeader(model.recipe.mode.title) {
-                        ResetButton(help: "Reset \(model.recipe.mode.title) settings") { model.resetStyle() }
-                    }
+                InspectorCard(model.recipe.mode.title) {
+                    CardResetButton("Reset \(model.recipe.mode.title) Settings") { model.resetStyle() }
+                } content: {
                     styleControls
                 }
-                InspectorCard {
-                    cardHeader("Texture") {
-                        ResetButton(help: "Reset texture") { model.resetTexture() }
-                        Toggle("Texture on", isOn: bindable.recipe.textureEnabled)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                    }
+                InspectorCard("Texture") {
+                    CardResetButton("Reset Texture") { model.resetTexture() }
+                    Toggle("Texture", isOn: bindable.recipe.textureEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                } content: {
                     if model.recipe.textureEnabled {
-                        SliderControl(title: "Grain", value: bindable.recipe.grain, range: 0...0.5, valueText: percent(model.recipe.grain))
-                        SliderControl(title: "Grain size", value: bindable.recipe.grainSize, range: 0.5...3, valueText: String(format: "%.1f×", model.recipe.grainSize))
+                        slider("Grain", \.grain, in: 0...0.5, format: .percent)
+                        slider("Grain Size", \.grainSize, in: 0.5...3, format: Self.grainSizeFormat)
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 20)
+            .padding(.horizontal, DMLayout.inspectorPadding)
+            .padding(.bottom, DMLayout.inspectorPadding)
         }
     }
 
-    private func cardHeader<Trailing: View>(_ title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-            Spacer()
-            trailing()
-        }
+    /// A slider on one recipe value. Dragging edits the recipe directly; the model folds a burst of
+    /// edits (700 ms) into one undo step, so the slider's commit has nothing left to do.
+    private func slider(_ title: String, _ keyPath: WritableKeyPath<GradientRecipe, Double>, in range: ClosedRange<Double>,
+                        format: SliderValueFormat = .percent) -> InspectorSlider {
+        InspectorSlider(title, value: model.recipe[keyPath: keyPath], in: range, default: Self.defaults[keyPath: keyPath],
+                        format: format, preview: { model.recipe[keyPath: keyPath] = $0 }, commit: {})
     }
 
     @ViewBuilder private var styleControls: some View {
         switch model.recipe.mode {
         case .organic:
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Flow")
-                    .font(.caption)
-                Picker("Flow", selection: bindable.recipe.organicFlow) {
-                    ForEach(OrganicFlow.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .help("Still melts the colors in place, Pull drags them like a brush, Wave ripples the borders, Classic is the original Organic")
+            StackedControl("Flow") {
+                FilledSegments("Flow", selection: bindable.recipe.organicFlow,
+                               segments: OrganicFlow.allCases.map { .init(value: $0, title: $0.title) })
             }
+            .help("Still melts the colors in place, Pull drags them like a brush, Wave ripples the borders, Classic is the original Organic")
             if model.recipe.organicFlow != .still {
-                SliderControl(title: organicStrengthTitle, value: bindable.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
+                slider(organicStrengthTitle, \.flow, in: 0...1)
             }
-            SliderControl(title: "Softness", value: bindable.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
-            SliderControl(title: "Swirl", value: bindable.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            slider("Softness", \.softness, in: 0...1)
+            slider("Swirl", \.swirl, in: 0...1)
             if model.recipe.organicFlow != .still || model.recipe.swirl > 0 {
                 Button("Shuffle Flow", systemImage: "shuffle") { model.shuffleMesh() }
                     .help("New directions for the flow and swirl, without moving your colors")
             }
         case .mesh:
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Grid")
-                    .font(.caption)
-                Picker("Grid", selection: Binding(get: { model.meshSize }, set: { model.setMeshSize($0) })) {
-                    ForEach(MeshGrid.sizes, id: \.self) { size in
-                        Text("\(size) × \(size)").tag(size)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+            StackedControl("Grid") {
+                FilledSegments("Grid", selection: Binding(get: { model.meshSize }, set: { model.setMeshSize($0) }),
+                               segments: MeshGrid.sizes.map { .init(value: $0, title: "\($0) × \($0)") })
             }
-            SliderControl(title: "Softness", value: bindable.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
+            slider("Softness", \.softness, in: 0...1)
             HStack(spacing: 8) {
                 Button { model.straightenMesh() } label: {
                     Text("Straighten").frame(maxWidth: .infinity)
@@ -250,55 +234,46 @@ struct InspectorView: View {
                 .foregroundStyle(.secondary)
         case .linear:
             AnglePresetGrid(current: model.linearAngle) { model.setLinearAngle($0) }
-            Picker("Blend", selection: bindable.recipe.smoothBlend) {
-                Text("Crisp").tag(false)
-                Text("Smooth").tag(true)
+            StackedControl("Blend") {
+                FilledSegments("Blend", selection: bindable.recipe.smoothBlend,
+                               segments: [.init(value: false, title: "Crisp"), .init(value: true, title: "Smooth")])
             }
-            .pickerStyle(.segmented)
             if !model.recipe.smoothBlend {
-                SliderControl(title: "Ease", value: bindable.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
+                slider("Ease", \.easing, in: 0...1)
             }
         case .tonal:
-            SliderControl(title: "Flow", value: bindable.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
-            SliderControl(title: "Softness", value: bindable.recipe.softness, range: 0...1, valueText: percent(model.recipe.softness))
-            SliderControl(title: "Variation", value: bindable.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
-            SliderControl(title: "Swirl", value: bindable.recipe.swirl, range: 0...1, valueText: percent(model.recipe.swirl))
+            slider("Flow", \.flow, in: 0...1)
+            slider("Softness", \.softness, in: 0...1)
+            slider("Variation", \.colorArc, in: 0...1)
+            slider("Swirl", \.swirl, in: 0...1)
             Button("Shuffle Texture", systemImage: "shuffle") { model.shuffleMesh() }
                 .help("Vary the tonal shapes without changing the base color")
         case .radial:
-            SliderControl(title: "Center X", value: bindable.recipe.centerX, range: -1...2, valueText: percent(model.recipe.centerX))
-            SliderControl(title: "Center Y", value: bindable.recipe.centerY, range: -1...2, valueText: percent(model.recipe.centerY))
-            SliderControl(title: "Spread", value: bindable.recipe.fadeWidth, range: 0.15...1.5, valueText: percent(model.recipe.fadeWidth))
-            SliderControl(title: "Ease", value: bindable.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
+            slider("Center X", \.centerX, in: -1...2)
+            slider("Center Y", \.centerY, in: -1...2)
+            slider("Spread", \.fadeWidth, in: 0.15...1.5)
+            slider("Ease", \.easing, in: 0...1)
         case .aurora:
             AnglePresetGrid(current: model.recipe.angleDegrees) { model.recipe.angleDegrees = $0 }
-            directionControls
-            SliderControl(title: "Flow", value: bindable.recipe.flow, range: 0...1, valueText: percent(model.recipe.flow))
-            SliderControl(title: "Fade width", value: bindable.recipe.fadeWidth, range: 0.15...5, valueText: percent(model.recipe.fadeWidth))
-            SliderControl(title: "Ease", value: bindable.recipe.easing, range: 0...1, valueText: percent(model.recipe.easing))
-            SliderControl(title: "Color arc", value: bindable.recipe.colorArc, range: 0...1, valueText: percent(model.recipe.colorArc))
+            slider("Angle", \.angleDegrees, in: 0...360, format: SliderValueFormat(unit: .degrees))
+            slider("Position", \.gradientPosition, in: 0...1)
+            slider("Flow", \.flow, in: 0...1)
+            slider("Fade Width", \.fadeWidth, in: 0.15...5)
+            slider("Ease", \.easing, in: 0...1)
+            slider("Color Arc", \.colorArc, in: 0...1)
         }
-    }
-
-    @ViewBuilder private var directionControls: some View {
-        SliderControl(title: "Angle", value: bindable.recipe.angleDegrees, range: 0...360, valueText: "\(Int(model.recipe.angleDegrees.rounded()))°")
-        SliderControl(title: "Position", value: bindable.recipe.gradientPosition, range: 0...1, valueText: percent(model.recipe.gradientPosition))
     }
 
     private var organicStrengthTitle: String {
         switch model.recipe.organicFlow {
         case .pull: "Pull"
-        case .wave: "Wave height"
+        case .wave: "Wave Height"
         case .still, .classic: "Flow"
         }
     }
 
     private var meshCaption: String {
         "Click a point on the canvas or in the tray, then click colors in your collections to paint it; it moves to the next point. Double-click a point for more colors. Drag points to bend the grid."
-    }
-
-    private func percent(_ value: Double) -> String {
-        "\(Int((value * 100).rounded()))%"
     }
 }
 
@@ -436,67 +411,6 @@ struct AnglePresetGrid: View {
     private func isSelected(_ angle: Double) -> Bool {
         let diff = abs(current - angle).truncatingRemainder(dividingBy: 360)
         return min(diff, 360 - diff) < 1.5
-    }
-}
-
-/// A rounded panel grouping related controls, matching the app's flat card style.
-private struct InspectorCard<Content: View>: View {
-    @Environment(\.colorSchemeContrast) private var contrast
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            content
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(contrast.hairline(0.05)), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(contrast.hairline(0.08)), lineWidth: 1) }
-    }
-}
-
-private struct ResetButton: View {
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: 11, weight: .semibold))
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(.secondary)
-        .help(help)
-        .accessibilityLabel(help)
-    }
-}
-
-struct SliderControl: View {
-    let title: String
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-    let valueText: String
-
-    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, valueText: String) {
-        self.title = title
-        self._value = value
-        self.range = range
-        self.valueText = valueText
-    }
-
-    var body: some View {
-        VStack(spacing: 5) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(valueText)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            .font(.caption)
-            Slider(value: $value, in: range)
-                .accessibilityLabel(title)
-        }
     }
 }
 
