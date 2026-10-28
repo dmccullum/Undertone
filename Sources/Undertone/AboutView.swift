@@ -102,11 +102,6 @@ struct AboutView: View {
                 Text("Undertone")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
 
-                Text("Soft color, finished with fine grain.")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
-
                 StudioSignature()
                     .padding(.top, 23)
 

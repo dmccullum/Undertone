@@ -27,8 +27,7 @@ Grain uses a 32-bit hash sampled on integer cell coordinates, so both renderers 
 These need a person at the app and are not covered by tests:
 
 - Gradients tab: new, duplicate, rename, delete and undo delete. Relaunch restores the last gradient with every setting and canvas size.
-- Automatic names change with the colors and stop changing after a rename. The dice popover offers five ideas.
-- On macOS 26 with Apple Intelligence on, the dice button shows sparkles and the ideas come from the on-device model. Building with Xcode 16 or earlier skips that code through `canImport(FoundationModels)`.
+- Automatic names change with the colors and stop changing after a rename. The rename sheet's dice button fills in a name from the colors, and renaming to it keeps the name automatic.
 - Canvas handles for Organic, Mesh, Glow, Linear and Aurora. Snapping and haptics on a Force Touch trackpad.
 - Color tray: edit popover, drag to reorder, add related tones, remove all.
 - Drag the canvas to Finder and into Canva. ⌘C with the canvas focused. Default names for Copy Image and Export Image.

@@ -938,7 +938,7 @@ private struct StopEditor: View {
                         let target = self.model
                         let id = stopID
                         Task {
-                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            try? await Task.sleep(for: .milliseconds(200))
                             target.removeColor(id: id)
                         }
                     }

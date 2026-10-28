@@ -50,10 +50,10 @@ struct ContentView: View {
         .focusedSceneValue(\.customSizeAction, CustomSizeAction { choosingCustomSize = true })
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
-        .alert("Couldn’t complete that action", isPresented: errorIsPresented) {
+        .alert(model.errorTitle, isPresented: errorIsPresented) {
             Button("OK", role: .cancel) { model.errorMessage = nil }
         } message: {
-            Text(model.errorMessage ?? "Unknown error")
+            Text(model.errorMessage ?? "")
         }
     }
 
@@ -128,10 +128,8 @@ private struct RenameGradientSheet: View {
         }
         .padding(20)
         .frame(width: 360)
-        .onAppear {
-            draft = model.currentName
-            DispatchQueue.main.async { focused = true }
-        }
+        .defaultFocus($focused, true)
+        .onAppear { draft = model.currentName }
     }
 
     private func commit() {

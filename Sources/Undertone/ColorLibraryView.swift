@@ -105,9 +105,12 @@ struct GradientLibraryView: View {
                 if !unsaved.isEmpty {
                     Section("Unsaved") { rows(unsaved) }
                 }
-                Section("Saved") {
-                    rows(model.gradients.filter { !$0.isUnsaved })
-                        .onMove { model.moveSavedGradients(fromOffsets: $0, toOffset: $1) }
+                let saved = model.gradients.filter { !$0.isUnsaved }
+                if !saved.isEmpty {
+                    Section("Saved") {
+                        rows(saved)
+                            .onMove { model.moveSavedGradients(fromOffsets: $0, toOffset: $1) }
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -265,7 +268,6 @@ struct ColorLibraryView: View {
     @Environment(StudioModel.self) private var model
     @AppStorage("collapsedCollections") private var collapsedStorage = ""
     let showSheet: (ColorSheet) -> Void
-    @State private var deleting: ColorLibrary?
 
     private var collapsed: Set<String> {
         Set(collapsedStorage.split(separator: ",").map(String.init))
@@ -278,8 +280,7 @@ struct ColorLibraryView: View {
                     CollectionSection(
                         library: library,
                         isExpanded: expansion(for: library),
-                        showSheet: showSheet,
-                        requestDelete: { deleting = $0 }
+                        showSheet: showSheet
                     )
                 }
             }
@@ -311,17 +312,6 @@ struct ColorLibraryView: View {
             }
             .padding(10)
         }
-        .confirmationDialog(
-            "Delete \(deleting?.name ?? "collection")?",
-            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
-        ) {
-            Button("Delete Collection", role: .destructive) {
-                if let library = deleting { model.deleteColorLibrary(id: library.id) }
-                deleting = nil
-            }
-        } message: {
-            Text("Gradients that use these colors keep them.")
-        }
     }
 
     private func expansion(for library: ColorLibrary) -> Binding<Bool> {
@@ -344,7 +334,6 @@ private struct CollectionSection: View {
     let library: ColorLibrary
     @Binding var isExpanded: Bool
     let showSheet: (ColorSheet) -> Void
-    let requestDelete: (ColorLibrary) -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
@@ -421,7 +410,8 @@ private struct CollectionSection: View {
         Button("Rename…") { showSheet(.renameCollection(library)) }
         Button("Export…") { model.exportColorLibrary(id: library.id) }
         Divider()
-        Button("Delete…", role: .destructive) { requestDelete(library) }
+        // No confirmation: Edit › Undo brings the collection back.
+        Button("Delete", role: .destructive) { model.deleteColorLibrary(id: library.id) }
     }
 
     private func swatch(_ color: LibraryColor) -> some View {
@@ -577,7 +567,6 @@ private struct ColorEditorSheet: View {
                 Form {
                     TextField("Name", text: $name)
                         .focused($focused)
-                        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focused = true } }
                     HStack {
                         TextField("Hex", text: $hex)
                         ColorPicker("Color", selection: colorBinding, supportsOpacity: false)
@@ -597,6 +586,7 @@ private struct ColorEditorSheet: View {
         }
         .padding(24)
         .frame(width: 400)
+        .defaultFocus($focused, true)
     }
 }
 
@@ -625,7 +615,6 @@ private struct NameSheet: View {
             }
             TextField("Name", text: $name)
                 .focused($focused)
-                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focused = true } }
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()

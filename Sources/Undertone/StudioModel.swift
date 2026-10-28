@@ -34,6 +34,8 @@ import UniformTypeIdentifiers
     /// Mesh: the point library clicks paint, and the mesh point being hovered in the tray.
     private(set) var selectedMeshPoint = 0
     var highlightedMeshPoint: Int?
+    /// The error alert: what failed (its title) and why.
+    private(set) var errorTitle = ""
     var errorMessage: String?
 
     // Everything below is bookkeeping no view draws from, so it's left out of observation. The
@@ -71,7 +73,7 @@ import UniformTypeIdentifiers
         colorLibrariesURL = directory.appendingPathComponent("color-libraries.json")
         legacyColorsURL = directory.appendingPathComponent("colors.json")
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
-        catch { errorMessage = "Could not open your library folder: \(error.localizedDescription)" }
+        catch { fail("Couldn’t Open the Library Folder", error) }
         // Compile the shader and run the GPU self-test off the main thread before the canvas needs it.
         Task.detached(priority: .userInitiated) { _ = RenderEngine.usesGPU }
         loadColorLibraries()
@@ -125,7 +127,7 @@ import UniformTypeIdentifiers
                 gradients = Self.starterGradients()
                 try persistGradients()
             }
-        } catch { errorMessage = "Could not load your gradients: \(error.localizedDescription)" }
+        } catch { fail("Couldn’t Load Your Gradients", error) }
         if gradients.isEmpty { gradients = Self.starterGradients() }
     }
 
@@ -184,7 +186,7 @@ import UniformTypeIdentifiers
         do {
             try persistGradients()
             if confirm { flash("Saved") }
-        } catch { errorMessage = "Could not save your gradients: \(error.localizedDescription)" }
+        } catch { fail("Couldn’t Save Your Gradients", error) }
     }
 
     /// Opens a gradient on the canvas, committing the current one first. An unsaved copy that was
@@ -508,7 +510,7 @@ import UniformTypeIdentifiers
         }
         undoBurstTask?.cancel()
         undoBurstTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
             self?.undoBurstOpen = false
         }
@@ -556,7 +558,7 @@ import UniformTypeIdentifiers
                 let colors = try JSONDecoder().decode([LibraryColor].self, from: Data(contentsOf: legacyColorsURL))
                 if !colors.isEmpty { colorLibraries = [.init(name: "My Colors", colors: colors)] }
             }
-        } catch { errorMessage = "Could not load color collections: \(error.localizedDescription)" }
+        } catch { fail("Couldn’t Load Your Collections", error) }
         seedDefaultCollectionsIfNeeded()
     }
 
@@ -576,7 +578,7 @@ import UniformTypeIdentifiers
     }
 
     private func saveColorLibraries() {
-        do { try persistColorLibraries() } catch { errorMessage = error.localizedDescription }
+        do { try persistColorLibraries() } catch { fail("Couldn’t Save Your Collections", error) }
     }
 
     /// Color and collection edits undo by restoring the whole set of collections: it's small, and a
@@ -605,7 +607,7 @@ import UniformTypeIdentifiers
             return library.id
         } catch {
             colorLibraries.removeAll { $0.id == library.id }
-            errorMessage = error.localizedDescription
+            fail("Couldn’t Create the Collection", error)
             return nil
         }
     }
@@ -704,7 +706,7 @@ import UniformTypeIdentifiers
             return colorLibraries[target].id
         } catch {
             colorLibraries = previous
-            errorMessage = error.localizedDescription
+            fail("Couldn’t Add the Color", error)
             return nil
         }
     }
@@ -746,7 +748,7 @@ import UniformTypeIdentifiers
         Task {
             guard await panel.present() == .OK, let url = panel.url else { return }
             do { try importColorLibrary(data: Data(contentsOf: url)) }
-            catch { errorMessage = "Could not import that collection: \(error.localizedDescription)" }
+            catch { fail("Couldn’t Import Collection", error) }
         }
     }
 
@@ -757,7 +759,7 @@ import UniformTypeIdentifiers
         Task {
             guard await panel.present() == .OK, let url = panel.url else { return }
             do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); flash("Exported \(library.name)") }
-            catch { errorMessage = "Could not export that collection: \(error.localizedDescription)" }
+            catch { fail("Couldn’t Export Collection", error) }
         }
     }
 
@@ -909,7 +911,6 @@ import UniformTypeIdentifiers
         repeat { shuffled.shuffle() } while shuffled == current
         for index in vertices.indices { vertices[index].hex = shuffled[index] }
         recipe.meshVertices = vertices
-        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 
     /// Puts every mesh point back on an even grid, keeping the colors they show.
@@ -932,7 +933,7 @@ import UniformTypeIdentifiers
             pointsRevealed = true
         } else {
             revealHideTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 450_000_000)
+                try? await Task.sleep(for: .milliseconds(450))
                 guard !Task.isCancelled else { return }
                 self?.pointsRevealed = false
                 self?.highlightedStopID = nil
@@ -1015,7 +1016,6 @@ import UniformTypeIdentifiers
     /// Reshapes the Organic blend's flow field without moving any color, by re-rolling the seed.
     func shuffleMesh() {
         recipe.seed = UInt64.random(in: 1...UInt64.max)
-        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 
     /// The Linear line's current angle in degrees (0–360), derived from its endpoints.
@@ -1052,7 +1052,6 @@ import UniformTypeIdentifiers
     func randomize() {
         animateNextPreview = true
         recipe = Self.randomized(recipe)
-        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 
     static func randomized(_ source: GradientRecipe) -> GradientRecipe {
@@ -1147,7 +1146,7 @@ import UniformTypeIdentifiers
                     self.preview = rendered
                 }
             case .failure(let error):
-                self.errorMessage = error.localizedDescription
+                self.fail("Couldn’t Render the Preview", error)
             }
             if self.renderPending {
                 self.renderPending = false
@@ -1160,7 +1159,7 @@ import UniformTypeIdentifiers
     private func scheduleIdleWork() {
         idleTask?.cancel()
         idleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, let self else { return }
             if !self.isLoadingGradient { self.saveNow() }
             if self.displayedIsInteractive, !self.renderInFlight { self.renderPreview(interactive: false) }
@@ -1185,12 +1184,18 @@ import UniformTypeIdentifiers
 
     // MARK: - Messages
 
+    /// Shows the error alert, titled with what failed.
+    private func fail(_ title: String, _ error: Error) {
+        errorTitle = title
+        errorMessage = error.localizedDescription
+    }
+
     func flash(_ message: String) {
         toastTask?.cancel()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.35, dampingFraction: 0.8)) { toast = message }
         toastTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            try? await Task.sleep(for: .seconds(2.4))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.25)) { self?.toast = nil }
         }
@@ -1207,7 +1212,7 @@ import UniformTypeIdentifiers
         "\(Self.fileSafe(currentName)) \(recipe.width)x\(recipe.height).\(ext)"
     }
 
-    private func renderExport(completion: @escaping (CGImage, GradientRecipe) throws -> Void) {
+    private func renderExport(failureTitle: String, completion: @escaping (CGImage, GradientRecipe) throws -> Void) {
         guard !isRendering else { return }
         isRendering = true
         let snapshot = recipe
@@ -1216,7 +1221,7 @@ import UniformTypeIdentifiers
             do {
                 let image = try await Task.detached(priority: .userInitiated) { try RenderEngine.render(snapshot, width: snapshot.width, height: snapshot.height) }.value
                 try completion(image, snapshot)
-            } catch { errorMessage = "Export failed: \(error.localizedDescription)" }
+            } catch { fail(failureTitle, error) }
         }
     }
 
@@ -1238,7 +1243,7 @@ import UniformTypeIdentifiers
     }
 
     func copyImage() {
-        renderExport { image, _ in
+        renderExport(failureTitle: "Couldn’t Copy Image") { image, _ in
             let item = NSPasteboardItem()
             item.setData(try Self.encoded(image), forType: .png)
             if let tiff = NSBitmapImageRep(cgImage: image).tiffRepresentation { item.setData(tiff, forType: .tiff) }
@@ -1292,7 +1297,7 @@ import UniformTypeIdentifiers
         Task {
             guard await panel.present() == .OK, let url = panel.url else { return }
             let jpeg = accessory.format == .jpeg, quality = Self.jpegQuality
-            renderExport { image, _ in
+            renderExport(failureTitle: "Couldn’t Export Image") { image, _ in
                 try Self.encoded(image, jpeg: jpeg, quality: quality).write(to: url, options: .atomic)
                 self.flash("Saved \(url.lastPathComponent)")
             }
@@ -1316,7 +1321,7 @@ import UniformTypeIdentifiers
                 let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 try encoder.encode(recipe).write(to: url, options: .atomic)
                 flash("Exported \(url.lastPathComponent)")
-            } catch { errorMessage = error.localizedDescription }
+            } catch { fail("Couldn’t Export Recipe", error) }
         }
     }
 
@@ -1344,7 +1349,7 @@ import UniformTypeIdentifiers
             saveNow()
             undoManager?.removeAllActions(withTarget: recipeUndoTarget)
             registerGradientsUndo("Import Recipe", restoring: before)
-        } catch { errorMessage = "Could not open that recipe: \(error.localizedDescription)" }
+        } catch { fail("Couldn’t Import Recipe", error) }
     }
 
     static func validatedRecipe(from data: Data) throws -> GradientRecipe {
