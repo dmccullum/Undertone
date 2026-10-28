@@ -91,6 +91,7 @@ private struct LibraryTabPicker: View {
 
 struct GradientLibraryView: View {
     @Environment(StudioModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var renaming: SavedGradient?
 
     private var selection: Binding<UUID?> {
@@ -115,7 +116,7 @@ struct GradientLibraryView: View {
             .onChange(of: model.currentGradientID) { _, id in
                 guard let id, let gradient = model.currentGradient,
                       model.gradients.first(where: { $0.isUnsaved == gradient.isUnsaved })?.id == id else { return }
-                withAnimation { proxy.scrollTo(id, anchor: .top) }
+                withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .top) }
             }
         }
         .onDeleteCommand {
@@ -185,6 +186,7 @@ struct GradientLibraryView: View {
 }
 
 private struct GradientRow: View {
+    @Environment(\.colorSchemeContrast) private var contrast
     let gradient: SavedGradient
     let thumbnail: NSImage?
     /// For an unsaved gradient, the saved gradient it was edited from.
@@ -203,7 +205,7 @@ private struct GradientRow: View {
             }
             .frame(width: 44, height: 44)
             .clipShape(shape)
-            .overlay { shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
+            .overlay { shape.strokeBorder(Color.primary.opacity(contrast.hairline(0.1)), lineWidth: 1) }
             .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -338,6 +340,7 @@ struct ColorLibraryView: View {
 /// One collapsible collection: a header row, then swatches shaped like the style tiles.
 private struct CollectionSection: View {
     @Environment(StudioModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let library: ColorLibrary
     @Binding var isExpanded: Bool
     let showSheet: (ColorSheet) -> Void
@@ -373,7 +376,7 @@ private struct CollectionSection: View {
     private var header: some View {
         HStack(spacing: 6) {
             Button {
-                withAnimation(.snappy(duration: 0.25)) { isExpanded.toggle() }
+                withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .snappy(duration: 0.25)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.right")
@@ -449,6 +452,8 @@ private struct SwatchTile: View {
     let count: Int
     let isEnabled: Bool
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var hovering = false
 
     var body: some View {
@@ -458,7 +463,7 @@ private struct SwatchTile: View {
                 shape
                     .fill(Hex.color(color.hex))
                     .frame(height: 44)
-                    .overlay { shape.strokeBorder(Color.primary.opacity(count > 0 ? 0 : 0.1), lineWidth: 1) }
+                    .overlay { shape.strokeBorder(Color.primary.opacity(count > 0 ? 0 : contrast.hairline(0.1)), lineWidth: 1) }
                     .overlay {
                         if count > 0 {
                             shape.strokeBorder(Color.accentColor, lineWidth: 2.5)
@@ -467,7 +472,7 @@ private struct SwatchTile: View {
                     .overlay {
                         // Hover outlines the swatch instead of growing it.
                         if hovering && isEnabled && count == 0 {
-                            shape.strokeBorder(Color.primary.opacity(0.35), lineWidth: 1.5)
+                            shape.strokeBorder(Color.primary.opacity(contrast.hairline(0.35)), lineWidth: 1.5)
                         }
                     }
                     .overlay(alignment: .topTrailing) {
@@ -476,11 +481,11 @@ private struct SwatchTile: View {
                                 if count > 1 { Text("\(count)") } else { Image(systemName: "checkmark") }
                             }
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color.onAccent)
                             .frame(minWidth: 16, minHeight: 16)
                             .background(Color.accentColor, in: Circle())
                             .offset(x: 4, y: -4)
-                            .transition(.scale.combined(with: .opacity))
+                            .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
                         }
                     }
                     .shadow(color: .black.opacity(0.08), radius: 2, y: 2)
@@ -496,7 +501,7 @@ private struct SwatchTile: View {
         .opacity(isEnabled ? 1 : 0.5)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .animation(.snappy, value: count)
+        .animation(reduceMotion ? .easeInOut(duration: 0.15) : .snappy, value: count)
         .help("Add \(color.displayName) · #\(color.hex)")
         .accessibilityLabel("\(color.displayName), \(color.hex)")
         .accessibilityValue(count == 0 ? "Not in gradient" : "In gradient \(count) times")
@@ -540,6 +545,7 @@ private struct AddSwatchTile: View {
 
 private struct ColorEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorSchemeContrast) private var contrast
     let title: String
     let confirmTitle: String
     @State var name: String
@@ -566,7 +572,7 @@ private struct ColorEditorSheet: View {
             HStack(spacing: 14) {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(Hex.color(Hex.normalized(hex) ?? "808080"))
-                    .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1) }
+                    .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(contrast.hairline(0.1)), lineWidth: 1) }
                     .frame(width: 56, height: 56)
                 Form {
                     TextField("Name", text: $name)

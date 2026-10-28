@@ -596,6 +596,7 @@ private struct CenterHandle: View {
 
 private struct CanvasToast: View {
     @Environment(StudioModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -611,7 +612,7 @@ private struct CanvasToast: View {
                     .id(toast)
             }
         }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         .allowsHitTesting(false)
     }
 }
@@ -621,7 +622,24 @@ private extension View {
         font(.callout.weight(.medium))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .glassEffect(.regular, in: Capsule())
+            .modifier(FloatingSurface(shape: Capsule()))
+    }
+}
+
+/// Liquid Glass for the controls floating over the canvas, or an opaque fill with a separator edge
+/// when Reduce Transparency is on.
+private struct FloatingSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+                .background(Color(nsColor: .windowBackgroundColor), in: shape)
+                .overlay { shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1) }
+        } else {
+            content.glassEffect(.regular, in: shape)
+        }
     }
 }
 
@@ -629,6 +647,7 @@ private extension View {
 
 private struct ColorTray: View {
     @Environment(StudioModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dragID: UUID?
     @State private var dragStartIndex = 0
     @State private var dragTranslation: CGSize = .zero
@@ -668,7 +687,7 @@ private struct ColorTray: View {
                         if isDragging { transaction.animation = nil }
                     }
                     .gesture(reorderGesture(for: stop))
-                    .transition(.scale.combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
             }
             if model.canAddStop {
                 AddStopButton()
@@ -691,8 +710,9 @@ private struct ColorTray: View {
         .coordinateSpace(name: "tray")
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassEffect(.regular, in: Capsule())
-        .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
+        .modifier(FloatingSurface(shape: Capsule()))
+        // With Reduce Motion, neighbors jump to their new places instead of sliding.
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.78), value: model.recipe.stops.map(\.id))
         // Hovering anywhere over the tray reveals all the canvas points.
         .onHover { model.setTrayHovering($0) }
     }
@@ -721,7 +741,7 @@ private struct ColorTray: View {
             }
             .onEnded { value in
                 let remove = abs(value.translation.height) > removeDistance
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.75)) {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.75)) {
                     dragID = nil
                     dragTranslation = .zero
                     if remove { model.removeColor(id: stop.id) }
@@ -759,7 +779,7 @@ private struct MeshTray: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .modifier(FloatingSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)))
     }
 
     private func cellView(_ index: Int, diameter: CGFloat) -> some View {
@@ -802,6 +822,8 @@ private struct StopChip: View {
     let stop: ColorStop
     let isLifted: Bool
     let isRemoving: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var editing = false
     @State private var hovering = false
 
@@ -811,10 +833,11 @@ private struct StopChip: View {
         ColorDot(hex: stop.hex, size: 30)
             // Hover rings the chip; only a drag lifts (scales) it.
             .overlay {
-                Circle().strokeBorder(Color.primary.opacity(hovering && !isLifted ? 0.45 : 0), lineWidth: 2)
+                Circle().strokeBorder(Color.primary.opacity(hovering && !isLifted ? (contrast == .increased ? 0.8 : 0.45) : 0), lineWidth: 2)
             }
             .shadow(color: .black.opacity(isLifted ? 0.3 : 0), radius: 8, y: 5)
-            .scaleEffect(isRemoving ? 0.8 : (isLifted ? 1.18 : 1))
+            // Reduce Motion: the lifted chip keeps its size and shows lift and removal by shadow and fade.
+            .scaleEffect(reduceMotion ? 1 : (isRemoving ? 0.8 : (isLifted ? 1.18 : 1)))
             .opacity(isRemoving ? 0.4 : 1)
             .overlay(alignment: .top) {
                 if isRemoving {
@@ -829,7 +852,7 @@ private struct StopChip: View {
                 }
             }
             .animation(.easeOut(duration: 0.12), value: hovering)
-            .animation(.snappy(duration: 0.25), value: isLifted)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : .snappy(duration: 0.25), value: isLifted)
             .animation(.easeOut(duration: 0.15), value: isRemoving)
             .contentShape(Circle())
             .onHover { isHovering in
@@ -894,6 +917,7 @@ private struct StopEditor: View {
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(.secondary)
                                 .help("Reset to 100%")
+                                .accessibilityLabel("Reset strength to 100%")
                             }
                             Spacer()
                             Text("\(Int((stop.weight * 100).rounded()))%")

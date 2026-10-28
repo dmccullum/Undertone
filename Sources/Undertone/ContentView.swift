@@ -118,6 +118,7 @@ private struct RenameGradientSheet: View {
                     Image(systemName: "die.face.5")
                 }
                 .help("Suggest a name from the colors")
+                .accessibilityLabel("Suggest a Name")
             }
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -322,6 +323,7 @@ private struct StyleTile: View {
     let image: NSImage?
     let isSelected: Bool
     let action: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var hovering = false
 
     var body: some View {
@@ -341,7 +343,7 @@ private struct StyleTile: View {
                 .clipShape(shape)
                 // Hover strengthens the outline instead of growing the tile.
                 .overlay {
-                    shape.strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(hovering ? 0.35 : 0.1), lineWidth: isSelected ? 2.5 : (hovering ? 1.5 : 1))
+                    shape.strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(hovering ? contrast.hairline(0.35) : contrast.hairline(0.1)), lineWidth: isSelected ? 2.5 : (hovering ? 1.5 : 1))
                 }
                 .shadow(color: .black.opacity(0.08), radius: 2, y: 2)
                 Text(mode.title)
@@ -358,20 +360,20 @@ private struct StyleTile: View {
     }
 }
 
-/// A tiny render of the artwork, blurred behind the interface so the window takes on its colors.
-/// It updates only when edits settle, so dragging never re-blurs the window.
 /// The window takes on the artwork's colors by blurring the live preview behind the interface.
 /// It reads the same preview image the canvas shows, so it tracks edits in realtime with no extra
 /// render and no update jump.
 struct AmbientBackdrop: View {
     @Environment(StudioModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 Color(nsColor: .windowBackgroundColor)
-                if let image = model.preview {
+                // Reduce Transparency: a plain window background, without the artwork showing through.
+                if let image = model.preview, !reduceTransparency {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.low)
@@ -396,6 +398,7 @@ struct AmbientBackdrop: View {
 
 /// Quick 45° angle presets for Linear and Aurora.
 struct AnglePresetGrid: View {
+    @Environment(\.colorSchemeContrast) private var contrast
     let current: Double
     let onSelect: (Double) -> Void
     private let angles: [Double] = [0, 45, 90, 135, 180, 225, 270, 315]
@@ -416,9 +419,9 @@ struct AnglePresetGrid: View {
                             .rotationEffect(.degrees(angle))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
-                            .background(selected ? Color.accentColor : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                            .foregroundStyle(selected ? Color.white : Color.primary)
-                            .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(selected ? 0 : 0.1), lineWidth: 1) }
+                            .background(selected ? Color.accentColor : Color.primary.opacity(contrast.hairline(0.06)), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .foregroundStyle(selected ? Color.onAccent : Color.primary)
+                            .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(selected ? 0 : contrast.hairline(0.1)), lineWidth: 1) }
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -437,6 +440,7 @@ struct AnglePresetGrid: View {
 
 /// A rounded panel grouping related controls, matching the app's flat card style.
 private struct InspectorCard<Content: View>: View {
+    @Environment(\.colorSchemeContrast) private var contrast
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -445,8 +449,8 @@ private struct InspectorCard<Content: View>: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1) }
+        .background(Color.primary.opacity(contrast.hairline(0.05)), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(contrast.hairline(0.08)), lineWidth: 1) }
     }
 }
 
@@ -527,14 +531,35 @@ struct HexField: View {
 /// A round swatch for gradient colors and suggestions. Flat color, with the same hairline and
 /// shadow as the style tiles and library swatches.
 struct ColorDot: View {
+    @Environment(\.colorSchemeContrast) private var contrast
     let hex: String
     var size: CGFloat = 28
 
     var body: some View {
         Circle()
             .fill(Hex.color(hex))
-            .overlay { Circle().strokeBorder(Color.primary.opacity(0.14), lineWidth: 1) }
+            .overlay { Circle().strokeBorder(Color.primary.opacity(contrast.hairline(0.14)), lineWidth: 1) }
             .frame(width: size, height: size)
             .shadow(color: .black.opacity(0.14), radius: 2, y: 1)
+    }
+}
+
+extension ColorSchemeContrast {
+    /// A hairline, card tint or outline opacity: tripled (up to 0.45) with Increase Contrast.
+    func hairline(_ standard: Double) -> Double {
+        self == .increased ? min(0.45, standard * 3) : standard
+    }
+}
+
+extension Color {
+    /// Glyphs drawn on an accent fill: white, or black when the accent is light enough (yellow) that
+    /// white would wash out.
+    static var onAccent: Color {
+        guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return .white }
+        func linear(_ channel: CGFloat) -> CGFloat {
+            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linear(accent.redComponent) + 0.7152 * linear(accent.greenComponent) + 0.0722 * linear(accent.blueComponent)
+        return luminance > 0.5 ? .black : .white
     }
 }

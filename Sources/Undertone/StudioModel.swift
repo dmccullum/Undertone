@@ -1187,7 +1187,8 @@ import UniformTypeIdentifiers
 
     func flash(_ message: String) {
         toastTask?.cancel()
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { toast = message }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.35, dampingFraction: 0.8)) { toast = message }
         toastTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_400_000_000)
             guard !Task.isCancelled else { return }
