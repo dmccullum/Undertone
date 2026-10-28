@@ -29,7 +29,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Undertone</string>
 <key>CFBundleDisplayName</key><string>Undertone</string>
-<key>CFBundleIdentifier</key><string>studio.undertone.mac</string>
+<key>CFBundleIdentifier</key><string>com.danielmccullum.Undertone</string>
 <key>CFBundleExecutable</key><string>Undertone</string>
 <key>CFBundleIconFile</key><string>Undertone</string>
 <key>CFBundleIconName</key><string>Undertone</string>

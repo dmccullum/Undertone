@@ -33,10 +33,52 @@ final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Carries settings over from Undertone's old bundle identifier, once.
+nonisolated enum BundleIDMigration {
+    static let oldBundleID = "studio.undertone.mac"
+    static let newBundleID = "com.danielmccullum.Undertone"
+    static let marker = "migratedFromBundleID"
+
+    /// The app's own keys from a preferences domain, without the ones AppKit and the system write
+    /// (window frames, panel state, NS*, Apple*, com.apple.*).
+    static func appKeys(_ domain: [String: Any]) -> [String: Any] {
+        domain.filter { key, _ in !["NS", "Apple", "com.apple."].contains { key.hasPrefix($0) } }
+    }
+
+    /// Copies the old domain's keys into `defaults` when it holds none of the app's keys yet, then
+    /// writes the marker so this runs once. Returns whether it copied anything.
+    @discardableResult static func migrate(from oldDomain: [String: Any]?, into defaults: UserDefaults, currentDomain: [String: Any]) -> Bool {
+        guard currentDomain[marker] == nil else { return false }
+        defer { defaults.set(oldBundleID, forKey: marker) }
+        guard appKeys(currentDomain).isEmpty, let oldDomain else { return false }
+        let keys = appKeys(oldDomain)
+        for (key, value) in keys { defaults.set(value, forKey: key) }
+        return !keys.isEmpty
+    }
+
+    /// Runs before anything reads settings. Only the packaged app (with the new identifier) migrates;
+    /// `swift run` and tests have no bundle identifier and keep their own domain.
+    static func run() {
+        guard Bundle.main.bundleIdentifier == newBundleID else { return }
+        let defaults = UserDefaults.standard
+        migrate(
+            from: defaults.persistentDomain(forName: oldBundleID),
+            into: defaults,
+            currentDomain: defaults.persistentDomain(forName: newBundleID) ?? [:]
+        )
+    }
+}
+
 @main
 struct UndertoneApp: App {
     @NSApplicationDelegateAdaptor(UndertoneAppDelegate.self) private var appDelegate
-    @State private var model = StudioModel()
+    @State private var model: StudioModel
+
+    init() {
+        // Before the model and @AppStorage read the open gradient, canvas size and sidebar state.
+        BundleIDMigration.run()
+        _model = State(initialValue: StudioModel())
+    }
 
     var body: some Scene {
         Window("Undertone", id: "studio") {
