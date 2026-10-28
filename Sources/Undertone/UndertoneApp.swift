@@ -94,7 +94,11 @@ struct UndertoneApp: App {
         .keyboardShortcut("0", modifiers: .command)
         .commands {
             AboutCommands()
-            HelpCommands()
+            FamilyHelpCommands(
+                help: URL(string: "https://github.com/dmccullum/Undertone/blob/main/docs/USAGE.md")!,
+                keyboardShortcuts: .url(URL(string: "https://github.com/dmccullum/Undertone#keyboard-shortcuts")!),
+                reportIssue: URL(string: "https://github.com/dmccullum/Undertone/issues/new")
+            )
             UndoCommands()
             SidebarCommands()
             StudioCommands(model: model)
@@ -116,16 +120,6 @@ private struct AboutCommands: Commands {
     }
 }
 
-private struct HelpCommands: Commands {
-    private static let usageURL = URL(string: "https://github.com/dmccullum/Undertone/blob/main/docs/USAGE.md")!
-
-    var body: some Commands {
-        CommandGroup(replacing: .help) {
-            Button("Undertone Help") { NSWorkspace.shared.open(Self.usageURL) }
-                .keyboardShortcut("?", modifiers: .command)
-        }
-    }
-}
 
 /// Opens the Custom Size sheet from Gradient › Canvas Size.
 struct CustomSizeAction {
