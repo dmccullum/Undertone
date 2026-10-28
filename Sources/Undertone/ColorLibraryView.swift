@@ -265,7 +265,7 @@ struct ColorLibraryView: View {
                     .disabled(model.recipe.stops.isEmpty)
                     Divider()
                     Button("Import Collection…", systemImage: "square.and.arrow.down") {
-                        _ = model.importColorLibraryFromPanel()
+                        model.importColorLibraryFromPanel()
                     }
                 } label: {
                     Label("New Collection", systemImage: "plus")

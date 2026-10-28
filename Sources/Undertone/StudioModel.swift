@@ -741,20 +741,24 @@ import UniformTypeIdentifiers
         return imported.id
     }
 
-    func importColorLibraryFromPanel() -> UUID? {
+    func importColorLibraryFromPanel() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        do { return try importColorLibrary(data: Data(contentsOf: url)) }
-        catch { errorMessage = "Could not import that collection: \(error.localizedDescription)"; return nil }
+        Task {
+            guard await panel.present() == .OK, let url = panel.url else { return }
+            do { try importColorLibrary(data: Data(contentsOf: url)) }
+            catch { errorMessage = "Could not import that collection: \(error.localizedDescription)" }
+        }
     }
 
     func exportColorLibrary(id: UUID) {
         guard let library = colorLibraries.first(where: { $0.id == id }) else { return }
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = Self.fileSafe(library.name) + ".undertone-colors.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); flash("Exported \(library.name)") }
-        catch { errorMessage = "Could not export that collection: \(error.localizedDescription)" }
+        Task {
+            guard await panel.present() == .OK, let url = panel.url else { return }
+            do { try encodedColorLibrary(id: id).write(to: url, options: .atomic); flash("Exported \(library.name)") }
+            catch { errorMessage = "Could not export that collection: \(error.localizedDescription)" }
+        }
     }
 
     // MARK: - Color stops
@@ -1270,10 +1274,12 @@ import UniformTypeIdentifiers
         panel.allowedContentTypes = [.png, .jpeg]
         panel.nameFieldStringValue = exportFileName(extension: "png")
         panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        renderExport { image, _ in
-            try Self.encoded(image, jpeg: ["jpg", "jpeg"].contains(url.pathExtension.lowercased())).write(to: url, options: .atomic)
-            self.flash("Saved \(url.lastPathComponent)")
+        Task {
+            guard await panel.present() == .OK, let url = panel.url else { return }
+            renderExport { image, _ in
+                try Self.encoded(image, jpeg: ["jpg", "jpeg"].contains(url.pathExtension.lowercased())).write(to: url, options: .atomic)
+                self.flash("Saved \(url.lastPathComponent)")
+            }
         }
     }
 
@@ -1288,17 +1294,25 @@ import UniformTypeIdentifiers
     private func exportRecipe(_ name: String, _ recipe: GradientRecipe) {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = Self.fileSafe(name) + ".undertone.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(recipe).write(to: url, options: .atomic)
-            flash("Exported \(url.lastPathComponent)")
-        } catch { errorMessage = error.localizedDescription }
+        Task {
+            guard await panel.present() == .OK, let url = panel.url else { return }
+            do {
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                try encoder.encode(recipe).write(to: url, options: .atomic)
+                flash("Exported \(url.lastPathComponent)")
+            } catch { errorMessage = error.localizedDescription }
+        }
     }
 
     func importRecipe() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            guard await panel.present() == .OK, let url = panel.url else { return }
+            importRecipe(from: url)
+        }
+    }
+
+    private func importRecipe(from url: URL) {
         do {
             let recipe = try Self.validatedRecipe(from: Data(contentsOf: url))
             var name = url.lastPathComponent
@@ -1335,5 +1349,14 @@ import UniformTypeIdentifiers
               candidate.stops.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) && Hex.normalized($0.hex) != nil })
         else { throw CocoaError(.fileReadCorruptFile) }
         return candidate
+    }
+}
+
+extension NSSavePanel {
+    /// Shows the panel as a sheet on the studio window, or app-modal when no window is open.
+    func present() async -> NSApplication.ModalResponse {
+        let studio = NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.hasPrefix("studio") == true }
+        guard let window = studio ?? NSApp.mainWindow else { return runModal() }
+        return await beginSheetModal(for: window)
     }
 }
