@@ -79,7 +79,8 @@ struct StudioCommands: Commands {
             Button("Import Recipe…") { model.importRecipe() }
                 .keyboardShortcut("o")
         }
-        CommandGroup(replacing: .saveItem) {
+        // After, not replacing: the system's save group holds File › Close (⌘W).
+        CommandGroup(after: .saveItem) {
             Button(model.currentSource == nil ? "Save Gradient" : "Save as New Gradient") { model.saveAsNewGradient() }
                 .keyboardShortcut("s")
                 .disabled(!model.isCurrentUnsaved)
