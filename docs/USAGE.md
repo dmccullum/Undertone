@@ -55,6 +55,8 @@ The same commands are in the File menu and the row’s right-click menu, and all
 
 Randomize (⌘R) changes the geometry that matters for the current style. Every edit can be undone (⌘Z), including changes to colors, collections and gradient names; a slider drag undoes in one step. Opening another gradient clears its canvas edits from the undo history but keeps library changes. Copy Image (⇧⌘C) and Export Image (⌘E) render at full size. Export Image saves PNG or JPEG; Settings (⌘,) sets the format its save panel starts on and the JPEG quality. The Gradient menu also holds Canvas Size, the Texture switch, Shuffle Flow, Reset Style, Reset Texture and Remove All Colors. Export Recipe and Import Recipe move portable `.undertone.json` files between Macs.
 
+**About.** Undertone › About Undertone fills its window with an Organic gradient and film grain, drawn by the same renderer as the canvas. Move the pointer over the window and the color points circle it and drift toward it; they ease back to their places when the pointer leaves. The capsule under the name shows the palette's colors and name. Click it to shuffle to the next palette: Dusk, Tidal and Ember first, then palettes built from the color tray's related tones, each laid out by Randomize. The window's text turns dark over a light palette and light over a dark one. With Reduce Motion on, the gradient stays still and a shuffle crossfades.
+
 Gradients, collections and colors are stored under `~/Library/Application Support/Undertone/`. Older gradient presets, which saved only colors, move into the Gradients library on first launch.
 
 See [PLAN.md](../PLAN.md) for the design and remaining acceptance checks.

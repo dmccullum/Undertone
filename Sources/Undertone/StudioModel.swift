@@ -974,8 +974,12 @@ import UniformTypeIdentifiers
         recipe.stops = stops
     }
 
-    func suggestedColors() -> [String] {
-        guard let color = recipe.stops.first?.nsColor.usingColorSpace(.sRGB) else {
+    func suggestedColors() -> [String] { Self.suggestedColors(near: recipe.stops.first?.hex) }
+
+    /// Four tones around a color: its neighbors on the hue wheel, two lighter and two deeper. The
+    /// color tray offers them for the first color; the About window builds palettes from them.
+    static func suggestedColors(near hex: String?) -> [String] {
+        guard let color = hex.map(Hex.nsColor)?.usingColorSpace(.sRGB) else {
             return ["F3AC91", "7655A3", "67B8AC", "E57E55"]
         }
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0

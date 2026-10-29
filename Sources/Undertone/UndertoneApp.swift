@@ -74,6 +74,8 @@ nonisolated enum BundleIDMigration {
 struct UndertoneApp: App {
     @NSApplicationDelegateAdaptor(UndertoneAppDelegate.self) private var appDelegate
     @State private var model: StudioModel
+    /// The About window's live gradient, shared by its backdrop and its palette signature.
+    @State private var aboutGradient = AboutGradient()
 
     init() {
         // Before the model and @AppStorage read the open gradient, canvas size and sidebar state.
@@ -107,8 +109,11 @@ struct UndertoneApp: App {
         Settings {
             SettingsView()
         }
-        AboutScene(links: AboutLinks(sourceCode: URL(string: "https://github.com/dmccullum/Undertone"))) {
-            StudioSignature()
+        AboutScene(
+            links: AboutLinks(sourceCode: URL(string: "https://github.com/dmccullum/Undertone")),
+            backdrop: AnyView(AboutGradientBackdrop(gradient: aboutGradient))
+        ) {
+            PaletteSignature(gradient: aboutGradient)
         }
     }
 }
