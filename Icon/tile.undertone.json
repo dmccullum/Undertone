@@ -1,2 +1,0 @@
-{"stops":[{"hex":"76505D","x":0.15,"y":0.1,"weight":1.2},{"hex":"D3B6BF","x":0.8,"y":0.25},{"hex":"B0818F","x":0.25,"y":0.85,"weight":1.3},{"hex":"CFB3A5","x":0.9,"y":0.9,"weight":0.6}],
-"organicFlow":"pull","flow":0.6,"softness":0.7,"swirl":0.15,"grain":0.35,"grainSize":2,"seed":11,"width":1024,"height":1024}
