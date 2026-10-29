@@ -2,22 +2,6 @@
   "features": [
     "refractivity"
   ],
-  "fill": {
-    "linear-gradient": [
-      "srgb:0.35294,0.26667,0.87843,1.00000",
-      "srgb:0.13333,0.07451,0.47843,1.00000"
-    ],
-    "orientation": {
-      "start": {
-        "x": 0.2,
-        "y": 0
-      },
-      "stop": {
-        "x": 0.8,
-        "y": 1
-      }
-    }
-  },
   "groups": [
     {
       "name": "Pin",
@@ -45,8 +29,27 @@
           "image-name": "rim-5.svg"
         },
         {
+          "name": "chip-5-dark",
+          "image-name": "chip-5-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
+        },
+        {
           "name": "chip-5",
-          "image-name": "chip-5.svg"
+          "image-name": "chip-5.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
         }
       ],
       "blur-material": 0.1,
@@ -58,7 +61,7 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.6
+        "value": 0.45
       },
       "refractivity": {
         "depth": 0,
@@ -67,37 +70,58 @@
       }
     },
     {
-      "name": "Chip 4",
+      "name": "Chip 4 + Chip 3 + Chip 2 + Chip 1",
       "layers": [
         {
           "name": "rim-4",
           "image-name": "rim-4.svg"
         },
         {
+          "name": "chip-4-dark",
+          "image-name": "chip-4-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
+        },
+        {
           "name": "chip-4",
-          "image-name": "chip-4.svg"
-        }
-      ],
-      "blur-material": 0.1,
-      "lighting": "individual",
-      "shadow": {
-        "kind": "layer-color",
-        "opacity": 0.4
-      },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.6
-      },
-      "refractivity": {
-        "depth": 0,
-        "enabled": true,
-        "strength": 0.5
-      }
-    },
-    {
-      "name": "Chip 3 + Chip 2 + Chip 1",
-      "layers": [
+          "image-name": "chip-4.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
+          "name": "shadow-4-dark",
+          "image-name": "shadow-4-g3-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
+        },
+        {
+          "name": "shadow-4",
+          "image-name": "shadow-4-g3.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
         {
           "name": "rim-3",
           "image-name": "rim-3.svg"
@@ -114,12 +138,50 @@
           ]
         },
         {
+          "name": "chip-3-dark",
+          "image-name": "chip-3-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
+        },
+        {
           "name": "chip-3",
-          "image-name": "chip-3.svg"
+          "image-name": "chip-3.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
+          "name": "shadow-3-dark",
+          "image-name": "shadow-3-g3-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
         },
         {
           "name": "shadow-3",
-          "image-name": "shadow-3-g3.svg"
+          "image-name": "shadow-3-g3.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
         },
         {
           "name": "rim-2",
@@ -137,12 +199,50 @@
           ]
         },
         {
+          "name": "chip-2-dark",
+          "image-name": "chip-2-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
+        },
+        {
           "name": "chip-2",
-          "image-name": "chip-2.svg"
+          "image-name": "chip-2.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
+          "name": "shadow-2-dark",
+          "image-name": "shadow-2-g3-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
         },
         {
           "name": "shadow-2",
-          "image-name": "shadow-2-g3.svg"
+          "image-name": "shadow-2-g3.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
         },
         {
           "name": "rim-1",
@@ -160,11 +260,29 @@
           ]
         },
         {
+          "name": "chip-1-dark",
+          "image-name": "chip-1-dark.svg",
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
+        },
+        {
           "name": "chip-1",
-          "image-name": "chip-1.svg"
+          "image-name": "chip-1.svg",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
         }
       ],
-      "blur-material": 0.1,
       "lighting": "individual",
       "shadow": {
         "kind": "layer-color",
@@ -173,16 +291,102 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.6
+        "value": 0.45
       },
       "refractivity": {
         "depth": 0,
         "enabled": true,
         "strength": 0.5
       }
+    },
+    {
+      "name": "Tile",
+      "layers": [
+        {
+          "name": "tile",
+          "image-name": "tile.png",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            },
+            {
+              "appearance": "tinted",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
     }
   ],
   "supported-platforms": {
     "squares": "shared"
-  }
+  },
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.91373,0.45098,0.62353,1.00000",
+          "srgb:0.61176,0.16863,0.36863,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.2,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.8,
+            "y": 1
+          }
+        }
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.19608,0.19608,0.21176,1.00000",
+          "srgb:0.08627,0.08627,0.09412,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.2,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.8,
+            "y": 1
+          }
+        }
+      }
+    },
+    {
+      "appearance": "tinted",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.91373,0.45098,0.62353,1.00000",
+          "srgb:0.61176,0.16863,0.36863,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.2,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.8,
+            "y": 1
+          }
+        }
+      }
+    }
+  ]
 }

@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="512.0" y1="177.6" x2="512.0" y2="837.6"><stop offset="0.000" stop-color="#F79BBE"/><stop offset="1.000" stop-color="#DB6496"/></linearGradient></defs><path d="M469.10 177.60 L554.90 177.60 A61.60 61.60 0 0 1 616.50 239.20 L616.50 776.00 A61.60 61.60 0 0 1 554.90 837.60 L469.10 837.60 A61.60 61.60 0 0 1 407.50 776.00 L407.50 239.20 A61.60 61.60 0 0 1 469.10 177.60 Z" fill="url(#g)"/></svg>
