@@ -520,6 +520,21 @@ import UniformTypeIdentifiers
         }
     }
 
+    /// A one-off change to a recipe value, such as a slider reset or a typed value: its own undo step,
+    /// named `undoName` (“Reset Grain”), outside the burst a drag would join.
+    func setRecipeValue(_ keyPath: WritableKeyPath<GradientRecipe, Double>, to value: Double, undoName: String) {
+        guard recipe[keyPath: keyPath] != value else { return }
+        endUndoBurst()
+        recipe[keyPath: keyPath] = value
+        undoManager?.setActionName(undoName)
+        endUndoBurst()
+    }
+
+    private func endUndoBurst() {
+        undoBurstTask?.cancel()
+        undoBurstOpen = false
+    }
+
     private func restore(_ target: GradientRecipe) {
         let current = recipe
         undoManager?.registerUndo(withTarget: recipeUndoTarget) { [weak self] _ in

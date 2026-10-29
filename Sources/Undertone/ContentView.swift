@@ -187,12 +187,21 @@ struct InspectorView: View {
         }
     }
 
-    /// A slider on one recipe value. Dragging edits the recipe directly; the model folds a burst of
-    /// edits (700 ms) into one undo step, so the slider's commit has nothing left to do.
+    /// A slider on one recipe value. Drags and arrow-key nudges edit the recipe directly, and the
+    /// model folds each burst (700 ms) into one “Gradient Change” undo step. A reset, a typed value or
+    /// a VoiceOver adjustment is one change, so it becomes its own step, named “Reset Grain” or
+    /// “Change Grain”.
     private func slider(_ title: String, _ keyPath: WritableKeyPath<GradientRecipe, Double>, in range: ClosedRange<Double>,
                         format: SliderValueFormat = .percent) -> InspectorSlider {
         InspectorSlider(title, value: model.recipe[keyPath: keyPath], in: range, default: Self.defaults[keyPath: keyPath],
-                        format: format, preview: { model.recipe[keyPath: keyPath] = $0 }, commit: {})
+                        format: format) { value, change in
+            switch change {
+            case .drag, .nudge:
+                model.recipe[keyPath: keyPath] = value
+            case .reset, .typed, .adjust:
+                model.setRecipeValue(keyPath, to: value, undoName: change.undoActionName(for: title))
+            }
+        } commit: { _ in }
     }
 
     @ViewBuilder private var styleControls: some View {

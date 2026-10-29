@@ -289,6 +289,23 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(model.recipe.flow, 0.95)
     }
 
+    @MainActor func testSliderResetsAreTheirOwnNamedUndoStep() {
+        let folder = temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, undoManager) = undoableModel(in: folder)
+        let original = model.recipe.grain
+
+        // A drag, then a reset well inside the drag's 700 ms burst: the reset is still its own step.
+        step(undoManager) { model.recipe.grain = 0.4 }
+        step(undoManager) { model.setRecipeValue(\.grain, to: original, undoName: "Reset Grain") }
+        XCTAssertEqual(undoManager.undoActionName, "Reset Grain")
+
+        undoManager.undo()
+        XCTAssertEqual(model.recipe.grain, 0.4)
+        undoManager.undo()
+        XCTAssertEqual(model.recipe.grain, original)
+    }
+
     /// A model wired to a manual-grouping undo manager, as in the window but one step per `step`.
     @MainActor private func undoableModel(in folder: URL) -> (StudioModel, UndoManager) {
         let model = StudioModel(directory: folder)
