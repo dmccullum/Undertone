@@ -10,8 +10,8 @@ let package = Package(
         .library(name: "UndertoneKit", targets: ["UndertoneKit"])
     ],
     dependencies: [
-        // The family's shared package, checked out next to this repository.
-        .package(path: "../DMKit")
+        // The family's shared package.
+        .package(url: "https://github.com/dmccullum/DMKit.git", from: "1.0.0")
     ],
     targets: [
         .target(name: "UndertoneKit"),
