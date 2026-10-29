@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Metal
 import XCTest
-@testable import Undertone
+@testable import UndertoneKit
 
 /// The quality gate for the GPU renderer: every style, grain included, must match the CPU reference
 /// within 2/255 on every channel of every pixel.

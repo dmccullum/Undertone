@@ -55,6 +55,8 @@ swift test             # renderer, export, library and naming tests
 
 Use the release configuration for `swift run`: the CPU renderer is much slower in debug builds. You can also open `Package.swift` in Xcode. The one package dependency is DMKit, at `../DMKit`.
 
+`UndertoneKit` is the renderer as a library product: it decodes `.undertone.json` recipes and renders them to a `CGImage`, using Foundation, CoreGraphics and Metal only. Other apps add it with `.package(path: "../Undertone")`.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

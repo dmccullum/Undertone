@@ -1,6 +1,7 @@
 import CoreGraphics
 import XCTest
 @testable import Undertone
+@testable import UndertoneKit
 
 @MainActor
 final class AboutGradientTests: XCTestCase {

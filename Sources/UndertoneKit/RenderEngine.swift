@@ -6,18 +6,20 @@ import Foundation
 /// every channel of every pixel within 2/255, the same gate the tests use. GPUs differ slightly in
 /// how they compute `exp`, `cos` and `pow`, so the check runs on each Mac; one that doesn't pass stays
 /// on the CPU. Either way, every Mac produces the same image within 2/255.
-nonisolated enum RenderEngine {
+public nonisolated enum RenderEngine {
     static let tolerance = 2
 
     /// The Metal renderer, or nil when this Mac has none or it didn't pass the self-test.
-    static let metal: MetalRenderer? = {
+    public static let metal: MetalRenderer? = {
         guard let renderer = MetalRenderer.shared, let worst = try? selfTest(renderer), worst <= tolerance else { return nil }
         return renderer
     }()
 
-    static var usesGPU: Bool { metal != nil }
+    public static var usesGPU: Bool { metal != nil }
 
-    static func render(_ recipe: GradientRecipe, width: Int, height: Int) throws -> CGImage {
+    /// Renders `recipe` at `width` × `height` pixels as an 8-bit sRGB image: on the GPU when this Mac
+    /// passed the self-test, otherwise on the CPU. The recipe's own `width` and `height` are not used.
+    public static func render(_ recipe: GradientRecipe, width: Int, height: Int) throws -> CGImage {
         if let metal, let image = try? metal.render(recipe, width: width, height: height) { return image }
         return try GradientRenderer.render(recipe, width: width, height: height)
     }

@@ -1,5 +1,6 @@
 import XCTest
 @testable import Undertone
+@testable import UndertoneKit
 
 final class MigrationTests: XCTestCase {
     private func scratchDefaults() -> (UserDefaults, String) {

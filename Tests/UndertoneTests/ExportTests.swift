@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import Undertone
+@testable import UndertoneKit
 
 final class ExportTests: XCTestCase {
     @MainActor func testPNGAndJPEGEncodeAtRequestedDimensions() throws {

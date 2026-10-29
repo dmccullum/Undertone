@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 import XCTest
-@testable import Undertone
+@testable import UndertoneKit
 
 final class RendererTests: XCTestCase {
     func testRenderHasRequestedDimensionsAndSRGBLayout() throws {

@@ -2,10 +2,16 @@ import Foundation
 
 /// One control point of the Mesh style's grid. Each point owns its color, like a mesh fill in a
 /// design tool. Positions are fractions of the canvas; an empty `hex` is an unpainted point.
-nonisolated struct MeshVertex: Codable, Equatable, Sendable {
-    var x: Double
-    var y: Double
-    var hex: String = ""
+public nonisolated struct MeshVertex: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var hex: String = ""
+
+    public init(x: Double, y: Double, hex: String = "") {
+        self.x = x
+        self.y = y
+        self.hex = hex
+    }
 }
 
 /// How mesh points were saved before they owned their colors (recipe version 4): a pinned tray color
@@ -20,25 +26,25 @@ nonisolated struct LegacyMeshVertex: Decodable {
 /// Geometry for the Mesh style: a square grid of points, row by row from the top left, joined by a
 /// Catmull-Rom surface so the grid bends smoothly when a point moves. The renderer and the canvas
 /// handles share these functions, so the grid lines on screen follow the rendered seams.
-nonisolated enum MeshGrid {
-    static let sizes = [3, 4]
+public nonisolated enum MeshGrid {
+    public static let sizes = [3, 4]
 
-    static func clampedSize(_ size: Int) -> Int { min(4, max(3, size)) }
+    public static func clampedSize(_ size: Int) -> Int { min(4, max(3, size)) }
 
-    static func regular(size: Int) -> [MeshVertex] {
+    public static func regular(size: Int) -> [MeshVertex] {
         let last = Double(size - 1)
         return (0..<size * size).map { MeshVertex(x: Double($0 % size) / last, y: Double($0 / size) / last) }
     }
 
     /// The recipe's points. Until the mesh is edited none are stored, and an even grid is seeded from
     /// the gradient's colors.
-    static func vertices(for recipe: GradientRecipe) -> [MeshVertex] {
+    public static func vertices(for recipe: GradientRecipe) -> [MeshVertex] {
         let size = clampedSize(recipe.meshSize)
         return recipe.meshVertices.count == size * size ? recipe.meshVertices : seeded(size: size, colors: recipe.stops.map(\.hex))
     }
 
     /// An even grid painted with `colors` by the automatic fill.
-    static func seeded(size: Int, colors: [String]) -> [MeshVertex] {
+    public static func seeded(size: Int, colors: [String]) -> [MeshVertex] {
         regular(size: size).enumerated().map { index, vertex in
             var painted = vertex
             if !colors.isEmpty { painted.hex = colors[automaticStopIndex(at: index, size: size, count: colors.count)] }
@@ -91,7 +97,7 @@ nonisolated enum MeshGrid {
 
     /// Changes the grid size, keeping its bends: the new points sit on the current surface and keep
     /// the nearest point's color.
-    static func resampled(_ vertices: [MeshVertex], from oldSize: Int, to newSize: Int) -> [MeshVertex] {
+    public static func resampled(_ vertices: [MeshVertex], from oldSize: Int, to newSize: Int) -> [MeshVertex] {
         let xs = vertices.map(\.x), ys = vertices.map(\.y)
         let last = Double(newSize - 1), oldLast = Double(oldSize - 1)
         return (0..<newSize * newSize).map { index in
@@ -108,7 +114,7 @@ nonisolated enum MeshGrid {
     /// Keeps the grid in order so it never folds over itself: corners stay put, edge points slide only
     /// along their edge, and every point stays between its neighbors in its row and column. The mesh
     /// therefore always covers the whole canvas without creases.
-    static func constrained(_ index: Int, x: Double, y: Double, in vertices: [MeshVertex], size: Int) -> (x: Double, y: Double) {
+    public static func constrained(_ index: Int, x: Double, y: Double, in vertices: [MeshVertex], size: Int) -> (x: Double, y: Double) {
         let column = index % size, row = index / size, last = size - 1
         var x = min(1, max(0, x)), y = min(1, max(0, y))
         let onVerticalEdge = column == 0 || column == last, onHorizontalEdge = row == 0 || row == last
@@ -127,7 +133,7 @@ nonisolated enum MeshGrid {
     }
 
     /// A point on the bent grid, for drawing its lines. `u` runs across and `v` down, both 0...1.
-    static func point(on vertices: [MeshVertex], size: Int, u: Double, v: Double) -> (x: Double, y: Double) {
+    public static func point(on vertices: [MeshVertex], size: Int, u: Double, v: Double) -> (x: Double, y: Double) {
         (surface(vertices.map(\.x), size: size, u: u, v: v, monotone: true), surface(vertices.map(\.y), size: size, u: u, v: v, monotone: true))
     }
 

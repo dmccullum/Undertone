@@ -1,6 +1,7 @@
 import AppKit
 import DMKit
 import SwiftUI
+import UndertoneKit
 import UniformTypeIdentifiers
 
 @Observable final class StudioModel {

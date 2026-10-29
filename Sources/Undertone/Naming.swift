@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import UndertoneKit
 
 /// Plain-language descriptions of colors, used for names and for the Apple Intelligence brief.
 nonisolated enum ColorNamer {

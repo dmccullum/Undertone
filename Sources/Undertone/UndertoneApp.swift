@@ -1,6 +1,7 @@
 import AppKit
 import DMKit
 import SwiftUI
+import UndertoneKit
 
 final class UndertoneAppDelegate: NSObject, NSApplicationDelegate {
     private var observer: NSObjectProtocol?

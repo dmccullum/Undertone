@@ -1,6 +1,7 @@
 import AppKit
 import DMKit
 import SwiftUI
+import UndertoneKit
 
 struct StudioCanvas: View {
     @Environment(StudioModel.self) private var model

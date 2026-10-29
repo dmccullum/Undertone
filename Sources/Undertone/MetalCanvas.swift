@@ -1,5 +1,6 @@
 import MetalKit
 import SwiftUI
+import UndertoneKit
 
 /// The canvas preview on the GPU: the same kernel as export, written straight into the view's drawable
 /// at full Retina resolution. It draws only when the recipe or size changes. The layer is tagged sRGB,

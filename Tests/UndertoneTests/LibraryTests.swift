@@ -1,5 +1,6 @@
 import XCTest
 @testable import Undertone
+@testable import UndertoneKit
 
 final class LibraryTests: XCTestCase {
     private func temporaryFolder() -> URL {

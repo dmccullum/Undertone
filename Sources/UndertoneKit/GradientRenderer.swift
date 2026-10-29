@@ -2,22 +2,24 @@ import CoreGraphics
 import Dispatch
 import Foundation
 
-nonisolated enum GradientRenderer {
-    enum RenderError: Error, Equatable {
+public nonisolated enum GradientRenderer {
+    public enum RenderError: Error, Equatable {
         case invalidDimensions(width: Int, height: Int)
         case imageTooLarge(width: Int, height: Int)
         case insufficientColorStops
         case imageCreationFailed
     }
 
-    static let maximumDimension = 8_192
-    static let maximumPixelCount = 33_554_432
+    public static let maximumDimension = 8_192
+    public static let maximumPixelCount = 33_554_432
     static let lookupTableSize = 2_048
     /// Grain is sized relative to this reference (the preview's longest side), so it looks identical
     /// in the preview and the full-resolution export.
     static let grainReferenceSize = 1_280
 
-    static func render(_ recipe: GradientRecipe, width: Int, height: Int) throws -> CGImage {
+    /// The CPU reference renderer. Throws `RenderError` when a side is outside 1...8,192 or the image
+    /// is over 33,554,432 pixels.
+    public static func render(_ recipe: GradientRecipe, width: Int, height: Int) throws -> CGImage {
         let scene = try Scene(recipe, width: width, height: height)
         let byteCount = width * height * 4
         let storage = PixelStorage(byteCount: byteCount)
@@ -62,7 +64,7 @@ nonisolated enum GradientRenderer {
     /// Everything a recipe works out to at one output size. The CPU renderer and the Metal renderer
     /// both start from the same scene, so only the per-pixel math exists twice (here and in
     /// `MetalShaders`), and the two stay in step.
-    struct Scene: Sendable {
+    package struct Scene: Sendable {
         static let emptyColor = RGB(red: 0.13, green: 0.14, blue: 0.17)
 
         let width: Int, height: Int
@@ -86,7 +88,7 @@ nonisolated enum GradientRenderer {
         let organic: OrganicField?
         let mesh: MeshRaster?
 
-        init(_ recipe: GradientRecipe, width: Int, height: Int) throws {
+        package init(_ recipe: GradientRecipe, width: Int, height: Int) throws {
             guard width > 0, height > 0, width <= maximumDimension, height <= maximumDimension else {
                 throw RenderError.invalidDimensions(width: width, height: height)
             }
@@ -515,7 +517,7 @@ nonisolated enum GradientRenderer {
     static func normalizedCoordinate(_ value: Int, count: Int) -> Double { count == 1 ? 0.5 : Double(value) / Double(count - 1) }
     private static func clamp(_ value: Double, lower: Double, upper: Double) -> Double { min(upper, max(lower, value.isFinite ? value : lower)) }
     /// Rounds half up, the same formula the Metal kernel uses.
-    static func byte(_ value: Double) -> UInt8 { UInt8((min(1, max(0, value)) * 255 + 0.5).rounded(.down)) }
+    package static func byte(_ value: Double) -> UInt8 { UInt8((min(1, max(0, value)) * 255 + 0.5).rounded(.down)) }
     private static func interpolate(_ start: Double, _ end: Double, by amount: Double) -> Double { start + (end - start) * amount }
 
     private static func grainNoise(x: Int, y: Int, cellSize: Int, seed: UInt32) -> Double {
@@ -530,7 +532,7 @@ nonisolated enum GradientRenderer {
 
     /// A 32-bit integer hash (lowbias32) of a grain cell, as a value in -1...1. It's 32-bit so the GPU
     /// computes exactly the same value; the top 24 bits convert to a float without rounding.
-    static func hashNoise(x: Int, y: Int, seed: UInt32) -> Double {
+    package static func hashNoise(x: Int, y: Int, seed: UInt32) -> Double {
         let value = hash32(UInt32(truncatingIfNeeded: x) &+ hash32(UInt32(truncatingIfNeeded: y) &+ hash32(seed)))
         return Double(value >> 8) / 16_777_216 * 2 - 1
     }

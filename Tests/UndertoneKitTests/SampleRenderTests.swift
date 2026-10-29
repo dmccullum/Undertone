@@ -3,7 +3,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 import XCTest
-@testable import Undertone
+@testable import UndertoneKit
 
 /// Renders every `.undertone.json`/`.json` recipe in a folder to PNG, for visual before/after checks.
 ///

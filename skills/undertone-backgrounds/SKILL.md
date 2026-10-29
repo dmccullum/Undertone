@@ -109,6 +109,6 @@ read the palette from AdLab's `get_brand_rules` first; it can differ from this l
 
 ## Source
 
-Ported from `Sources/Undertone/GradientRenderer.swift` in the Undertone repository
+Ported from `Sources/UndertoneKit/GradientRenderer.swift` in the Undertone repository
 (`skills/undertone-backgrounds/`). After changing the Swift Organic or grain math, port the change
 here and recheck parity with `SampleRenderTests` (see the repository's `skills/README.md`).

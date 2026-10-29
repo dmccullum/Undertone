@@ -1,6 +1,7 @@
 import AppKit
 import DMKit
 import SwiftUI
+import UndertoneKit
 
 enum SidebarTab: String {
     case gradients, colors

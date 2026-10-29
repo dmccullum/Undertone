@@ -1,6 +1,7 @@
 import AppKit
 import DMKit
 import SwiftUI
+import UndertoneKit
 
 /// The About window's live gradient: an Organic recipe drawn by `RenderEngine`, the renderer the
 /// canvas uses, at a third of the window's size and scaled up. Its color points swirl around the

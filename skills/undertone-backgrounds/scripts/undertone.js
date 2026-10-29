@@ -1,5 +1,5 @@
 /*
- * Undertone Organic gradient + film grain, ported from Sources/Undertone/GradientRenderer.swift.
+ * Undertone Organic gradient + film grain, ported from Sources/UndertoneKit/GradientRenderer.swift.
  * Same math as the app's CPU renderer: OKLab blending with chroma restore, the Still / Pull / Wave /
  * Classic flows, swirl, seeded grain in a 1280 px reference space, and the ±1/255 dither.
  *
