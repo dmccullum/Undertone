@@ -705,27 +705,28 @@ private struct MeshTray: View {
     var body: some View {
         let size = model.meshSize
         let cell: CGFloat = size == 3 ? 22 : 17
-        HStack(spacing: 12) {
-            Grid(horizontalSpacing: 5, verticalSpacing: 5) {
-                ForEach(0..<size, id: \.self) { row in
-                    GridRow {
-                        ForEach(0..<size, id: \.self) { column in
-                            cellView(row * size + column, diameter: cell)
+        // A rounded, vertical FloatingBar: the grid is several rows tall, which a capsule's ends
+        // would cut into. Its one row holds the grid and the caption.
+        FloatingBar(shape: RoundedRectangle(cornerRadius: DMRadius.large, style: .continuous), axis: .vertical,
+                    padding: EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)) {
+            HStack(spacing: 12) {
+                Grid(horizontalSpacing: 5, verticalSpacing: 5) {
+                    ForEach(0..<size, id: \.self) { row in
+                        GridRow {
+                            ForEach(0..<size, id: \.self) { column in
+                                cellView(row * size + column, diameter: cell)
+                            }
                         }
                     }
                 }
+                Text(model.meshColor(at: model.selectedMeshPoint).isEmpty
+                     ? "Pick a point,\nthen a color"
+                     : "Point \(model.selectedMeshPoint + 1) of \(size * size)\nClick colors to paint")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             }
-            Text(model.meshColor(at: model.selectedMeshPoint).isEmpty
-                 ? "Pick a point,\nthen a color"
-                 : "Point \(model.selectedMeshPoint + 1) of \(size * size)\nClick colors to paint")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        // Not a FloatingBar: the grid is several rows tall, and a capsule's ends would swallow it.
-        .floatingGlass(in: RoundedRectangle(cornerRadius: DMRadius.large, style: .continuous))
     }
 
     private func cellView(_ index: Int, diameter: CGFloat) -> some View {
