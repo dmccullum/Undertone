@@ -1,14 +1,15 @@
 """Generates Icon/Undertone.icon, the Icon Composer source for the app icon (the Prism Fan).
 
-Icon Composer allows four visible groups. Chips that share a group are flattened before the glass
-is applied, so they lose their own edge highlight and the shadow they cast on the chip behind.
+Icon Composer allows four visible groups: the pin and three chips each get their own, so every chip
+gets the system's glass. Chips that share a group (more chips than groups) are flattened before the
+glass is applied, so they lose their own edge highlight and the shadow they cast on the chip behind.
 This script bakes those two things into each shared chip's artwork instead.
 
 usage: python3 scripts/build-prism-fan-icon.py [OUT.icon] ['{"shift": -24, "translucency": 0.9}']
 
 OUT defaults to Icon/Undertone.icon and is replaced wholesale, so close it in Icon Composer first.
 The optional JSON overrides any key of P below. Preview a build with Icon Composer's ictool:
-  "$(xcode-select -p)/Applications/Icon Composer.app/Contents/Executables/ictool" Icon/Undertone.icon \\
+  "$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool" Icon/Undertone.icon \\
       --export-image --output-file preview.png --platform macOS --rendition Default \\
       --width 512 --height 512 --scale 2 --design-generation 26
 """
@@ -17,10 +18,15 @@ import json, math, os, shutil, sys
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icon", "Undertone.icon")
 if not OUT.rstrip("/").endswith(".icon"):
     sys.exit("refusing to replace %s: the output must be an .icon bundle" % OUT)
-P = {"groups": [["pin"], [5], [4], [3, 2, 1]], "bake": True,
-     "translucency": 0.6, "blur": 0.1, "refract": [0.5, 0], "shadow": 0.4,
+# angle and grad are keyed by chip number, back to front; each gradient runs corner to corner.
+# bg is the tile's two gradient colors, or None for the system's own light and dark backgrounds.
+P = {"groups": [["pin"], [3], [2], [1]], "bake": True,
+     "angle": {"1": -32, "2": 0, "3": 32},
+     "grad": {"1": ["#FFB347", "#FF3B3B", "#D9145A"], "2": ["#E4F55A", "#2ED16A", "#0FA3A0"],
+              "3": ["#6EF0FF", "#2F7BFF", "#5A2BE8"]},
+     "translucency": 0.5, "blur": 0.1, "refract": [0.5, 0], "shadow": 0.4,
      "spec_opacity": 0.9, "inner_shadow": 0.45, "caustic_opacity": 0.6, "caustic_y": 846, "shift": 6,
-     "scale": 1.10, "bg": ["#5A44E0", "#22137A"]}
+     "scale": 1.10, "tilt": 16, "center": True, "nudge": 18, "bg": None}
 if len(sys.argv) > 2:
     P.update(json.loads(sys.argv[2]))
 
@@ -32,9 +38,8 @@ os.makedirs(A)
 PIV = (512, 750); DY = -34 + P["shift"]
 X0, Y0, W, H, R = 417, 236, 190, 600, 56
 X1, Y1 = X0 + W, Y0 + H
-ANGLE = {1: -34, 2: -17, 3: 0, 4: 17, 5: 34}
-GRAD = {1: ("#4BEBFF", "#2E6BFF"), 2: ("#8F7BFF", "#4A22D9"), 3: ("#FF7BD5", "#A21FE0"),
-        4: ("#FF8A7A", "#FF2E7E"), 5: ("#FFE08A", "#FF7B45")}
+ANGLE = {int(k): v for k, v in P["angle"].items()}
+GRAD = {int(k): v for k, v in P["grad"].items()}
 SPECTRUM = ["#FF4D6D", "#FFB84D", "#F2FF5C", "#4DFFB0", "#4DC3FF", "#8F5CFF", "#FF5CE1"]
 HEAD = '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">'
 
@@ -45,9 +50,20 @@ def tf(p, a, dx=0, dy=0):
 
 
 def sc(p):
-    """Scale the composition about the canvas centre."""
-    k = P["scale"]
-    return (512 + (p[0] - 512)*k, 512 + (p[1] - 512)*k)
+    """Scale the composition about the canvas centre, then tilt it there (degrees, clockwise)."""
+    k, t = P["scale"], math.radians(P["tilt"])
+    x, y = (p[0] - 512)*k, (p[1] - 512)*k
+    return (512 + x*math.cos(t) - y*math.sin(t) + OFF[0], 512 + x*math.sin(t) + y*math.cos(t) + OFF[1])
+
+
+OFF = (0, 0)
+if P["center"]:
+    # move the chips' bounding box to the canvas centre, then apply nudge and shift on top
+    # (a tilted fan's weight sits off its bounding box, so nudge moves it toward the eye's centre)
+    pts = [tf((cx + R*math.cos(math.radians(d)), cy + R*math.sin(math.radians(d))), ANGLE[i])
+           for i in ANGLE for cx in (X0+R, X1-R) for cy in (Y0+R, Y1-R) for d in range(0, 360, 5)]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    OFF = (512 - (min(xs) + max(xs))/2 + P["nudge"], 512 - (min(ys) + max(ys))/2 + P["shift"])
 
 
 def chip_path(i, dx=0, dy=0):
@@ -71,19 +87,11 @@ def write(name, body):
         fh.write(HEAD + body + "</svg>\n")
 
 
-for i in range(1, 6):
+for i in ANGLE:
     a = ANGLE[i]
-    top, bot = tf(((X0+X1)/2, Y0), a), tf(((X0+X1)/2, Y1), a)
-    write("chip-%d.svg" % i, "<defs>" + grad("g", list(GRAD[i]), top, bot) + '</defs><path d="%s" fill="url(#g)"/>' % chip_path(i))
-    write("rim-%d.svg" % i, "<defs>" + grad("s", SPECTRUM, top, bot)
-          + '<clipPath id="c"><path d="%s"/></clipPath></defs>' % chip_path(i)
-          + '<g clip-path="url(#c)" fill="none">'
-          + '<path d="%s" stroke="#3EF0FF" stroke-opacity="0.32" stroke-width="8"/>' % chip_path(i, -6, -2)
-          + '<path d="%s" stroke="#FF3DB4" stroke-opacity="0.16" stroke-width="7"/>' % chip_path(i, 6, 2)
-          + '<path d="%s" stroke="url(#s)" stroke-opacity="0.6" stroke-width="16"/>' % chip_path(i, -3, 1)
-          + "</g>")
-    # baked specular edge: what the group glass would have drawn on this chip's own outline
     tl, br = tf((X0, Y0), a), tf((X1, Y1), a)
+    write("chip-%d.svg" % i, "<defs>" + grad("g", GRAD[i], tl, br) + '</defs><path d="%s" fill="url(#g)"/>' % chip_path(i))
+    # baked specular edge: what the group glass would have drawn on this chip's own outline
     write("spec-%d.svg" % i, "<defs>" + grad("h", ["#FFFFFF"] * 4, tl, br, [0.95, 0.15, 0.05, 0.55])
           + '<clipPath id="c"><path d="%s"/></clipPath></defs>' % chip_path(i)
           + '<g clip-path="url(#c)"><path d="%s" fill="none" stroke="url(#h)" stroke-width="9"/></g>' % chip_path(i))
@@ -104,7 +112,7 @@ def inner_shadow(i, behind, tag):
 # when the caustic shares the front group with the pin, mask the chips out so it still reads as behind them
 caustic_front = any("caustic" in g and "pin" in g for g in P["groups"])
 chip_mask = ('<mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="#FFFFFF"/>'
-             + "".join('<path d="%s" fill="#000000"/>' % chip_path(i) for i in range(1, 6)) + '</mask>') if caustic_front else ""
+             + "".join('<path d="%s" fill="#000000"/>' % chip_path(i) for i in ANGLE) + '</mask>') if caustic_front else ""
 write("caustic.svg", "<defs>" + grad("s", SPECTRUM, (212, 0), (812, 0))
       + '<filter id="b" x="-50%" y="-100%" width="200%" height="300%"><feGaussianBlur stdDeviation="34"/></filter>' + chip_mask + '</defs>'
       + ('<g mask="url(#m)">' if caustic_front else "<g>")
@@ -146,7 +154,6 @@ def group(members, gi):
         layers.append({"name": "pin", "image-name": "pin.svg"})
     for n, i in enumerate(chips):
         behind = chips[n+1:]
-        layers.append({"name": "rim-%d" % i, "image-name": "rim-%d.svg" % i})
         if P["bake"] and len(chips) > 1:
             # white layers make dark mode render the whole group as pale glass, so the baked highlight is light-only
             layers.append({"name": "spec-%d" % i, "image-name": "spec-%d.svg" % i, "opacity": P["spec_opacity"],
@@ -176,11 +183,12 @@ def group(members, gi):
 
 doc = {
     "features": ["refractivity"],
-    "fill": {"linear-gradient": [srgb(P["bg"][0]), srgb(P["bg"][1])],
-             "orientation": {"start": {"x": 0.2, "y": 0}, "stop": {"x": 0.8, "y": 1}}},
     "groups": [group(m, gi) for gi, m in enumerate(P["groups"])],
     "supported-platforms": {"squares": "shared"},
 }
+if P["bg"]:
+    doc["fill"] = {"linear-gradient": [srgb(P["bg"][0]), srgb(P["bg"][1])],
+                   "orientation": {"start": {"x": 0.2, "y": 0}, "stop": {"x": 0.8, "y": 1}}}
 # drop artwork no layer uses (highlights for chips that keep their own group, the pin when it is left out)
 used = {l["image-name"] for g in doc["groups"] for l in g["layers"]}
 for name in os.listdir(A):

@@ -22,15 +22,11 @@
       }
     },
     {
-      "name": "Chip 5",
+      "name": "Chip 3",
       "layers": [
         {
-          "name": "rim-5",
-          "image-name": "rim-5.svg"
-        },
-        {
-          "name": "chip-5",
-          "image-name": "chip-5.svg"
+          "name": "chip-3",
+          "image-name": "chip-3.svg"
         }
       ],
       "blur-material": 0.1,
@@ -42,7 +38,7 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.25
+        "value": 0.5
       },
       "refractivity": {
         "depth": 0,
@@ -51,86 +47,14 @@
       }
     },
     {
-      "name": "Chip 4 + Chip 3 + Chip 2 + Chip 1",
+      "name": "Chip 2",
       "layers": [
-        {
-          "name": "rim-4",
-          "image-name": "rim-4.svg"
-        },
-        {
-          "name": "chip-4",
-          "image-name": "chip-4.svg"
-        },
-        {
-          "name": "shadow-4",
-          "image-name": "shadow-4-g3.svg"
-        },
-        {
-          "name": "rim-3",
-          "image-name": "rim-3.svg"
-        },
-        {
-          "name": "spec-3",
-          "image-name": "spec-3.svg",
-          "opacity": 0.9,
-          "hidden-specializations": [
-            {
-              "appearance": "dark",
-              "value": true
-            }
-          ]
-        },
-        {
-          "name": "chip-3",
-          "image-name": "chip-3.svg"
-        },
-        {
-          "name": "shadow-3",
-          "image-name": "shadow-3-g3.svg"
-        },
-        {
-          "name": "rim-2",
-          "image-name": "rim-2.svg"
-        },
-        {
-          "name": "spec-2",
-          "image-name": "spec-2.svg",
-          "opacity": 0.9,
-          "hidden-specializations": [
-            {
-              "appearance": "dark",
-              "value": true
-            }
-          ]
-        },
         {
           "name": "chip-2",
           "image-name": "chip-2.svg"
-        },
-        {
-          "name": "shadow-2",
-          "image-name": "shadow-2-g3.svg"
-        },
-        {
-          "name": "rim-1",
-          "image-name": "rim-1.svg"
-        },
-        {
-          "name": "spec-1",
-          "image-name": "spec-1.svg",
-          "opacity": 0.9,
-          "hidden-specializations": [
-            {
-              "appearance": "dark",
-              "value": true
-            }
-          ]
-        },
-        {
-          "name": "chip-1",
-          "image-name": "chip-1.svg"
         }
       ],
+      "blur-material": 0.1,
       "lighting": "individual",
       "shadow": {
         "kind": "layer-color",
@@ -139,7 +63,32 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.25
+        "value": 0.5
+      },
+      "refractivity": {
+        "depth": 0,
+        "enabled": true,
+        "strength": 0.5
+      }
+    },
+    {
+      "name": "Chip 1",
+      "layers": [
+        {
+          "name": "chip-1",
+          "image-name": "chip-1.svg"
+        }
+      ],
+      "blur-material": 0.1,
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.4
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
       },
       "refractivity": {
         "depth": 0,
