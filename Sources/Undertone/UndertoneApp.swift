@@ -93,6 +93,8 @@ struct UndertoneApp: App {
         .windowToolbarStyle(.unified)
         .keyboardShortcut("0", modifiers: .command)
         .commands {
+            // AboutScene doesn't add App › About; it comes from here, opening the About window.
+            AboutCommands()
             FamilyHelpCommands(
                 help: URL(string: "https://github.com/dmccullum/Undertone/blob/main/docs/USAGE.md")!,
                 keyboardShortcuts: .url(URL(string: "https://github.com/dmccullum/Undertone#keyboard-shortcuts")!),
