@@ -40,7 +40,7 @@ These need a person at the app and are not covered by tests:
 - Menus: View › Show Inspector is ⌥⌘I; Gradient › Canvas Size, Texture, Shuffle Flow, Reset Style, Reset Texture and Remove All Colors; the Colors menu opens its sheets from either sidebar tab.
 - Right-click menus on the canvas, a collection header, a swatch, a tray chip and an unsaved gradient row.
 - Bundle identifier migration: launch a build with the old `studio.undertone.mac` identifier, change the open gradient, sidebar tab, inspector and export settings, quit, then launch this build. Those settings and the library carry over, and `defaults read com.danielmccullum.Undertone migratedFromBundleID` prints the old identifier.
-- The rose accent (light #C24D7D, dark #E66C9D) on selected tiles, swatches and the Settings controls, with Appearance › Accent color set to Multicolor.
+- The mauve accent (light #946B78, dark #B48997) on selected tiles, swatches and the Settings controls, with Appearance › Accent color set to Multicolor.
 - Reduce Motion, Reduce Transparency and Increase Contrast (System Settings › Accessibility › Display), and a yellow accent color for the swatch badge and the selected angle button.
 
 ## Distribution
