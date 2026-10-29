@@ -1200,6 +1200,13 @@ import UniformTypeIdentifiers
         status = StatusMessage(message)
     }
 
+    /// A status led by a thumbnail of `recipe`: the preview already on screen, used only while it
+    /// still shows that recipe, so the capsule never renders anything of its own.
+    private func showStatus(_ message: String, thumbnailOf recipe: GradientRecipe) {
+        let thumbnail = self.recipe == recipe ? preview : nil
+        status = StatusMessage(message, leading: thumbnail.map { .thumbnail($0) })
+    }
+
     // MARK: - Export
 
     static func fileSafe(_ name: String) -> String {
@@ -1248,13 +1255,13 @@ import UniformTypeIdentifiers
     }
 
     func copyImage() {
-        renderExport(failureTitle: "Couldn’t Copy Image") { image, _ in
+        renderExport(failureTitle: "Couldn’t Copy Image") { image, snapshot in
             let item = NSPasteboardItem()
             item.setData(try Self.encoded(image), forType: .png)
             if let tiff = NSBitmapImageRep(cgImage: image).tiffRepresentation { item.setData(tiff, forType: .tiff) }
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.writeObjects([item]) else { throw CocoaError(.fileWriteUnknown) }
-            self.showStatus("Copied \(self.recipe.width) × \(self.recipe.height) image")
+            self.showStatus("Copied \(snapshot.width) × \(snapshot.height) image", thumbnailOf: snapshot)
         }
     }
 
@@ -1302,9 +1309,9 @@ import UniformTypeIdentifiers
         Task {
             guard await panel.present(in: window) == .OK, let url = panel.url else { return }
             let jpeg = accessory.format == .jpeg, quality = Self.jpegQuality
-            renderExport(failureTitle: "Couldn’t Export Image") { image, _ in
+            renderExport(failureTitle: "Couldn’t Export Image") { image, snapshot in
                 try Self.encoded(image, jpeg: jpeg, quality: quality).write(to: url, options: .atomic)
-                self.showStatus("Saved \(url.lastPathComponent)")
+                self.showStatus("Saved \(url.lastPathComponent)", thumbnailOf: snapshot)
             }
         }
     }
