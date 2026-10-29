@@ -156,20 +156,20 @@ struct InspectorView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: DMLayout.inspectorSpacing) {
-                InspectorCard("Canvas") {
+                InspectorCard("Canvas", systemImage: "aspectratio") {
                     CanvasSizeMenu()
                 }
-                InspectorCard("Style") {
+                InspectorCard("Style", systemImage: "swatchpalette") {
                     EmptyView()
                 } content: {
                     StylePicker()
                 }
-                InspectorCard(model.recipe.mode.title) {
+                InspectorCard(model.recipe.mode.title, systemImage: "slider.horizontal.3") {
                     CardResetButton("Reset \(model.recipe.mode.title) Settings") { model.resetStyle() }
                 } content: {
                     styleControls
                 }
-                InspectorCard("Texture") {
+                InspectorCard("Texture", systemImage: "aqi.medium", isActive: model.recipe.textureEnabled) {
                     CardResetButton("Reset Texture") { model.resetTexture() }
                     Toggle("Texture", isOn: bindable.recipe.textureEnabled)
                         .labelsHidden()
