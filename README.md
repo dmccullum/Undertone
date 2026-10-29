@@ -33,7 +33,7 @@
 
 ## Install
 
-No prebuilt release is published yet. Build from source with Xcode command-line tools. Undertone builds against DMKit, the package its About window, Help menu, status capsule and inspector controls come from, which must sit next to this folder as `../DMKit`. DMKit isn't published yet.
+No prebuilt release is published yet. Build from source with Xcode command-line tools. Undertone builds against [DMKit](https://github.com/dmccullum/DMKit), the package its About window, Help menu, status capsule and inspector controls come from; Swift Package Manager fetches it from GitHub.
 
 ```sh
 git clone https://github.com/dmccullum/Undertone.git
@@ -53,9 +53,9 @@ swift run -c release   # run from the command line
 swift test             # renderer, export, library and naming tests
 ```
 
-Use the release configuration for `swift run`: the CPU renderer is much slower in debug builds. You can also open `Package.swift` in Xcode. The one package dependency is DMKit, at `../DMKit`.
+Use the release configuration for `swift run`: the CPU renderer is much slower in debug builds. You can also open `Package.swift` in Xcode. The one package dependency is DMKit.
 
-`UndertoneKit` is the renderer as a library product: it decodes `.undertone.json` recipes and renders them to a `CGImage`, using Foundation, CoreGraphics and Metal only. Other apps add it with `.package(path: "../Undertone")`.
+`UndertoneKit` is the renderer as a library product: it decodes `.undertone.json` recipes and renders them to a `CGImage`, using Foundation, CoreGraphics and Metal only. Other apps add it with `.package(url: "https://github.com/dmccullum/Undertone.git", from: "0.1.0")`.
 
 ## Keyboard shortcuts
 
