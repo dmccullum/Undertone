@@ -25,13 +25,13 @@ struct StudioCanvas: View {
         .frame(minWidth: 0, maxWidth: .infinity)
         // The title is the native window title, with "Unsaved" as its subtitle for unsaved work; the
         // toolbar just carries the actions on the trailing side.
+        // The spacer leaves the inspector toggle on its own; Randomize, Copy and Export
+        // share one group because they all act on the image.
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { model.randomize() } label: { Label("Randomize", systemImage: "shuffle") }
-                    .help("Randomize the layout (⌘R)")
-            }
             ToolbarSpacer(.fixed, placement: .primaryAction)
             ToolbarItemGroup(placement: .primaryAction) {
+                Button { model.randomize() } label: { Label("Randomize", systemImage: "shuffle") }
+                    .help("Randomize the layout (⌘R)")
                 Button { model.copyImage() } label: { Label("Copy Image", systemImage: "doc.on.doc") }
                     .help("Copy the full-size image (⇧⌘C)")
                     .disabled(model.isRendering)
