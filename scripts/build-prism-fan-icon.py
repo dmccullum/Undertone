@@ -1,21 +1,30 @@
-"""Generates Icon/Undertone.icon, the Icon Composer source for the app icon (the Prism Fan).
+"""Generates the previous Undertone app icon (the Prism Fan) as an Icon Composer document.
+
+This script no longer builds the shipped icon. Icon/Undertone.icon is now a different design (a
+gradient panel with three glass discs, see docs/ICON.md), maintained directly in Icon Composer, so
+the script refuses to write over it. It is kept as a record and writes only to another .icon bundle.
 
 Icon Composer allows four visible groups: the pin and three chips each get their own, so every chip
 gets the system's glass. Chips that share a group (more chips than groups) are flattened before the
 glass is applied, so they lose their own edge highlight and the shadow they cast on the chip behind.
 This script bakes those two things into each shared chip's artwork instead.
 
-usage: python3 scripts/build-prism-fan-icon.py [OUT.icon] ['{"shift": -24, "translucency": 0.9}']
+usage: python3 scripts/build-prism-fan-icon.py OUT.icon ['{"shift": -24, "translucency": 0.9}']
 
-OUT defaults to Icon/Undertone.icon and is replaced wholesale, so close it in Icon Composer first.
+OUT is required and is replaced wholesale, so close it in Icon Composer first.
 The optional JSON overrides any key of P below. Preview a build with Icon Composer's ictool:
-  "$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool" Icon/Undertone.icon \\
+  "$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool" OUT.icon \\
       --export-image --output-file preview.png --platform macOS --rendition Default \\
       --width 512 --height 512 --scale 2 --design-generation 26
 """
 import json, math, os, shutil, sys
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icon", "Undertone.icon")
+if len(sys.argv) < 2:
+    sys.exit("usage: python3 scripts/build-prism-fan-icon.py OUT.icon [JSON]")
+OUT = sys.argv[1]
+SHIPPED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icon", "Undertone.icon")
+if os.path.realpath(OUT.rstrip("/")) == os.path.realpath(SHIPPED):
+    sys.exit("refusing to replace %s: the shipped icon is edited in Icon Composer, not generated" % os.path.normpath(SHIPPED))
 if not OUT.rstrip("/").endswith(".icon"):
     sys.exit("refusing to replace %s: the output must be an .icon bundle" % OUT)
 # angle and grad are keyed by chip number, back to front; each gradient runs corner to corner.

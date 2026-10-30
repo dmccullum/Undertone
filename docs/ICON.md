@@ -1,31 +1,26 @@
 # Undertone icon
 
-The icon is the Prism Fan: three glass color chips (red, green and blue) fanned on a metal pin, on the system's own light and dark icon backgrounds (`icon.json` sets no fill). Each chip is filled with a three-stop gradient that runs corner to corner (amber to raspberry, lime to teal, cyan to violet) and has 50% glass translucency. The whole fan is tilted 16° clockwise. Its source is the Icon Composer document `Icon/Undertone.icon`, and `scripts/build-app.sh` compiles it with `actool` into `Assets.car` (the Liquid Glass icon) plus `Undertone.icns`.
+The icon is a grained magenta-to-violet gradient panel on the system's own light and dark icon backgrounds (`icon.json` fills the tile with `system-light` and `system-dark`), with three clear glass discs lying on it. Its source is the Icon Composer document `Icon/Undertone.icon`, and `scripts/build-app.sh` compiles it with `actool` into `Assets.car` (the Liquid Glass icon) plus `Undertone.icns`.
 
-`scripts/build-prism-fan-icon.py` generates the whole document, its SVG layers and `icon.json`. It replaces the bundle wholesale, so close the document in Icon Composer before running it, and make any change in the script rather than by hand.
+`Icon/Undertone.icon` is maintained directly as an Icon Composer document. No script in this repository generates it, so edit it in Icon Composer and commit the bundle.
 
-```sh
-python3 scripts/build-prism-fan-icon.py
-python3 scripts/build-prism-fan-icon.py Icon/Undertone.icon '{"tilt": 10}'
-```
+## Layers
 
-The JSON argument overrides the script's settings:
+The document has four groups, the most `actool` accepts (it fails the build with "Too many visible groups" above four). On the 1024 canvas, from back to front:
 
-- `angle` and `grad`: each chip's fan angle (−32°, 0°, 32°) and gradient stops, keyed by chip number from back to front
-- `groups`: which chips share an Icon Composer group (`[["pin"], [3], [2], [1]]`)
-- `translucency` (0.5), `blur` (0.1), `refract` (strength and depth, 0.5 and 0), `shadow` (0.4)
-- `scale` (1.10, about the canvas centre) and `tilt` (16, degrees clockwise about the canvas centre)
-- `center` (true): moves the chips' bounding box to the canvas centre
-- `nudge` (18) and `shift` (6): horizontal and vertical offsets on the 1024 canvas, applied after centering. The tilted fan carries more weight at its upper left than its bounding box shows, so `nudge` moves it right to look centred.
-- `bg`: two background gradient colors, or `null` for the system backgrounds
+- **Well**: the gradient panel, 154 to 870 on both axes with a corner radius of 100, sitting flush in the tile with a 1.5 px hairline edge. It is an Organic gradient rendered by Undertone with grain 0.9 at size 5, baked into `panel.png`, `panel-dark.png` and `panel-tinted.png` (a plain grey ramp for the Tinted and Clear renditions). Above it in the same group, `shadows.svg` draws a soft drop shadow under each disc (`#14051C`, up to 46% opacity, 22 px down). The group has no shadow, specular or translucency of its own.
+- **Disc 1 to Disc 3**: three discs of radius 110, centred at (384, 234), (790, 512) and (512, 790). Each one overlaps a different edge of the panel (top, right and bottom) by 30 px. Each disc is its own group with a neutral shadow at 0.45 and specular on, and is built from:
+  - `discN-view.png` (with `-dark` and `-tinted` versions): a baked refraction of the panel and tile beneath the disc. The centre is magnified 1.12×; toward the rim the image is pulled in from up to 1.7 radii away and compressed, so the panel's edge curves round inside the rim; red, green and blue are offset by 3.5% for a slight colour fringe.
+  - `discN-tile.svg`: a patch of the tile colour behind the refraction, so the tile shows where the refracted edge moves inward.
+  - `discN.svg`: the glass shell, white from 14% at the top to 4% at the bottom.
+  - `discN-sheen.svg` and `discN-sheen-dark.svg`: a bevel sheen toward the rim; the dark one is fainter so the dark tile inside the overhang doesn't turn grey.
+  - `discN-edge.svg`, `discN-cyan.svg` and `discN-pink.svg`: a bright 2 px edge with a cyan ring outside it and a faint pink ring inside.
 
-Adding `"caustic"` to the pin's group (`[["pin", "caustic"], [3], [2], [1]]`) brings back the spectral pool under the fan.
+## Editing
 
-Icon Composer allows four visible groups: the pin and one per chip. Each chip in its own group gets the system's glass, highlight and layer-color shadow. Adding a fourth chip means two chips share a group, and shared chips are flattened before the glass is applied. For that case the script bakes what the glass would have given each one (`bake`): a tinted shadow on the chips behind it, and an edge highlight that is hidden in the dark appearance, because white layers make Icon Composer render the whole group as pale glass there. The pin can't share a group with chips: a translucent group turns it into ghostly glass, even with the layer's glass switched off.
+The disc views are pictures of the panel and tile beneath each disc. If the panel, the tile colours or a disc's position changes, the matching `discN-view` images must be rebuilt, or the refraction will no longer line up with what is behind it.
 
-Translucency above about 0.6 lets the background wash the chips out at Dock size, and the fan should stay near 1.10 scale to match the visual weight of neighboring icons. In the Clear and Tinted renditions the chips differ only in lightness (green lightest, blue darkest).
-
-On macOS, the dark appearance always uses the system's dark background; a custom dark fill is ignored.
+`scripts/build-prism-fan-icon.py` generated the previous icon, the Prism Fan (three glass color chips fanned on a pin). It is kept as a record and no longer writes to `Icon/Undertone.icon`; give it another `.icon` path to generate that design.
 
 Preview a build without opening Icon Composer:
 
