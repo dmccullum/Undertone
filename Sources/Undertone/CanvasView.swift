@@ -36,7 +36,7 @@ struct StudioCanvas: View {
                 Button { model.copyImage() } label: { Label("Copy Image", systemImage: "doc.on.doc") }
                     .help("Copy the full-size image (⇧⌘C)")
                     .disabled(model.isRendering)
-                Button { model.exportImage() } label: { Label("Export Image", systemImage: "square.and.arrow.up") }
+                Button { model.exportImage() } label: { Label("Export Image…", systemImage: "square.and.arrow.up") }
                     .help("Export a PNG or JPEG (⌘E)")
                     .disabled(model.isRendering)
             }
@@ -818,6 +818,7 @@ private struct StopChip: View {
                 Button("Edit Color…") { editing = true }
                 Button("Duplicate") { model.duplicateColor(id: stop.id) }
                     .disabled(!model.canAddStop || model.recipe.mode == .tonal)
+                Divider()
                 Button("Copy Hex") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("#" + stop.hex, forType: .string)

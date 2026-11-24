@@ -165,7 +165,7 @@ struct GradientLibraryView: View {
             Divider()
         }
         Button("Rename…") { renaming = gradient }
-        Button("Duplicate") { model.duplicateGradient(id: gradient.id) }
+        Button("Duplicate Gradient") { model.duplicateGradient(id: gradient.id) }
         Divider()
         Button("Export Recipe…") { model.exportRecipe(id: gradient.id) }
         Divider()
@@ -391,9 +391,10 @@ private struct CollectionSection: View {
 
     /// The header's ⋯ menu, repeated as its right-click menu.
     @ViewBuilder private var collectionMenu: some View {
-        Button("Add Color…") { showSheet(.addColor(libraryID: library.id)) }
         Button("Rename…") { showSheet(.renameCollection(library)) }
         Button("Export…") { model.exportColorLibrary(id: library.id) }
+        Divider()
+        Button("Add Color…") { showSheet(.addColor(libraryID: library.id)) }
         Divider()
         // No confirmation: Edit › Undo brings the collection back.
         Button("Delete", role: .destructive) { model.deleteColorLibrary(id: library.id) }
@@ -410,6 +411,7 @@ private struct CollectionSection: View {
                 .disabled(!canAdd)
             Divider()
             Button("Edit…") { showSheet(.editColor(libraryID: library.id, color: color)) }
+            Divider()
             Button("Copy Hex") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString("#" + color.hex, forType: .string)
